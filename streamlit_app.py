@@ -16,7 +16,7 @@ st.markdown("""
         50% { transform: translateY(-15px); }
         100% { transform: translateY(0px); }
     }
-    .floating-cauldron { animation: float 3s ease-in-out infinite; font-size: 5rem; text-align: center; }
+    .floating-cauldron { animation: float 3s ease-in-out infinite; font-size: 5rem; text-align: center; margin-top: 50px;}
 
     .app-card {
         background: rgba(255, 255, 255, 0.03);
@@ -153,90 +153,83 @@ def get_db():
     }
 
 # -------------------------------
-# CORE LOGIC
+# DATA PROCESSING
 # -------------------------------
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
 
+# Persistent Sidebar Inventory
 with st.sidebar:
     st.markdown("<h1 style='color:#58a6ff;'>📦 Storage</h1>", unsafe_allow_html=True)
     handcrafted = st.toggle("✨ Handcrafted (3x Effect)")
+    
     if st.button("🧹 Clear Inventory"):
         for h in all_herbs: st.session_state[f"i_{h}"] = 0
         st.rerun()
+    
     st.divider()
-    herb_search = st.text_input("🔍 Filter Herbs In Storage", "")
+    herb_filter = st.text_input("🔍 Filter Sidebar Herbs", "")
+    
     inv = {}
     for h in all_herbs:
-        val = st.session_state.get(f"i_{h}", 0)
-        if herb_search.lower() in h.lower():
-            inv[h] = st.number_input(h.title(), min_value=0, value=val, key=f"i_{h}")
+        key = f"i_{h}"
+        if key not in st.session_state: st.session_state[key] = 0
+        
+        if herb_filter.lower() in h.lower():
+            inv[h] = st.number_input(h.title(), min_value=0, key=key)
         else:
-            inv[h] = val
+            inv[h] = st.session_state[key]
 
-# Pre-calculate ALL possible plans first to enable dashboard searching
-plans = []
+# Pre-calculate plans for searching
+all_plans = []
 discovery = []
+
 for name, variants in db.items():
     for v in variants:
         possible = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
         amt = min(possible) if possible else 0
-        
-        # Discovery Logic
         missing = [ing for ing, req in v["ingredients"].items() if inv.get(ing, 0) < req]
         
         if amt > 0:
-            boost_per = v["qi"] * 3 if handcrafted else v["qi"]
-            plans.append({
-                "name": name, 
-                "tier": v["tier"], 
-                "amt": amt, 
-                "qi": boost_per, 
-                "spec": v.get("spec"), 
-                "ing": v["ingredients"]
+            boost = v["qi"] * 3 if handcrafted else v["qi"]
+            all_plans.append({
+                "name": name, "tier": v["tier"], "amt": amt, 
+                "qi": boost, "spec": v.get("spec"), "ing": v["ingredients"]
             })
         elif len(missing) == 1:
             m_ing = missing[0]
             discovery.append({
-                "name": name, 
-                "tier": v["tier"], 
-                "m_name": m_ing, 
-                "m_qty": v["ingredients"][m_ing] - inv.get(m_ing, 0)
+                "name": name, "tier": v["tier"], 
+                "m_name": m_ing, "m_qty": v["ingredients"][m_ing] - inv.get(m_ing, 0)
             })
 
 # -------------------------------
-# MAIN DASHBOARD UI
+# MAIN INTERFACE
 # -------------------------------
 st.title("Alchemy Dashboard")
 
-# DASHBOARD SEARCH (Triggers rerun on every change)
-pill_search = st.text_input("🔍 Search Craftable Recipes", key="main_search", placeholder="Type pill name, tier, or benefit (e.g. 'Dragon', 'Heavenly', 'Qi')...")
+# The Live Search Input
+pill_query = st.text_input("🔍 Search Craftable Recipes", key="live_pill_search", placeholder="Type pill name, tier, or benefit...")
 
 col_main, col_side = st.columns([2.2, 1])
 
 with col_main:
-    # Filter plans based on search text
-    filtered_plans = [
-        p for p in plans 
-        if pill_search.lower() in p['name'].lower() 
-        or pill_search.lower() in p['tier'].lower() 
-        or (p['spec'] and pill_search.lower() in p['spec'].lower())
-    ]
+    # Immediate Filtering
+    q = pill_query.lower()
+    filtered = [p for p in all_plans if q in p['name'].lower() or q in p['tier'].lower() or (p['spec'] and q in p['spec'].lower())]
 
-    if filtered_plans:
-        for p in sorted(filtered_plans, key=lambda x: x['qi'], reverse=True):
-            # Duration Logic
-            is_permanent = any(word in (p['spec'] or "").lower() for word in ["perm", "lifespan", "nirvana"])
-            duration_label = "⏳ Permanent" if is_permanent else "⏱️ Temporary"
+    if filtered:
+        for p in sorted(filtered, key=lambda x: x['qi'], reverse=True):
+            # Duration & Benefit logic
+            is_perm = any(w in (p['spec'] or "").lower() for w in ["perm", "lifespan", "nirvana"])
+            dur = "⏳ Permanent" if is_perm else "⏱️ Temporary"
             
-            # Benefit Tags
-            benefit_badges = f'<span class="benefit-tag dur-tag">{duration_label}</span>'
-            if p['qi'] > 0: benefit_badges += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi Boost</span>'
+            tags = f'<span class="benefit-tag dur-tag">{dur}</span>'
+            if p['qi'] > 0: tags += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi Boost</span>'
             if p['spec']:
-                for effect in p['spec'].split('/'):
-                    benefit_badges += f'<span class="benefit-tag spec-tag">✨ {effect.strip()}</span>'
+                for s in p['spec'].split('/'):
+                    tags += f'<span class="benefit-tag spec-tag">✨ {s.strip()}</span>'
 
-            # Ingredients & Summaries
             badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
             totals = "".join([f'<div style="min-width: 140px; font-size: 0.9rem;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
             
@@ -246,7 +239,7 @@ with col_main:
                     <div>
                         <div class="pill-tier">{p['tier']}</div>
                         <div class="pill-title">{p['name']}</div>
-                        <div style="margin-top:5px;">{benefit_badges}</div>
+                        <div style="margin-top:5px;">{tags}</div>
                     </div>
                     <div style="text-align: right;">
                         <div style="font-size: 0.7rem; color: #8b949e;">CRAFTABLE</div>
@@ -258,29 +251,24 @@ with col_main:
                 <div class="total-box">
                     <div style="font-size: 0.8rem; color:#58a6ff; font-weight:bold; margin-bottom:8px;">BATCH TOTALS</div>
                     <div style="display: flex; flex-wrap: wrap; gap: 5px 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom:8px; margin-bottom:8px;">{totals}</div>
-                    <p style="color:#f0f6fc; margin:0; font-size: 0.85rem;">Batch Duration: <b>{duration_label}</b></p>
-                    <p style="color:#3fb950; margin:0; font-size: 0.85rem;">Batch Power: <b>+{p['qi'] * p['amt']}% Qi Potential</b></p>
+                    <p style="color:#f0f6fc; margin:0; font-size: 0.85rem;">Effect Duration: <b>{dur}</b></p>
+                    <p style="color:#3fb950; margin:0; font-size: 0.85rem;">Cumulative Power: <b>+{p['qi'] * p['amt']}% Potential</b></p>
                 </div>
             </div>
             """
             st.markdown(html, unsafe_allow_html=True)
-    elif pill_search and not filtered_plans:
-        st.warning(f"No craftable recipes match '{pill_search}'.")
+    elif pill_query:
+        st.warning(f"No results found for '{pill_query}'.")
     else:
         st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
-        st.info("Storage empty or no recipes found. Add ingredients in the sidebar to begin.")
 
 with col_side:
     st.subheader("🧪 Near Ready")
-    # Filter discovery based on search as well
-    filtered_discovery = [
-        d for d in discovery 
-        if pill_search.lower() in d['name'].lower() 
-        or pill_search.lower() in d['tier'].lower()
-    ]
+    # Filter Discovery with search too
+    f_discovery = [d for d in discovery if q in d['name'].lower() or q in d['tier'].lower()]
     
-    if filtered_discovery:
-        for d in filtered_discovery[:6]:
+    if f_discovery:
+        for d in f_discovery[:8]:
             st.markdown(f"""
             <div class="discovery-card">
                 <div style="font-size: 0.7rem; color:#8b949e; text-transform: uppercase;">{d['tier']}</div>
@@ -289,4 +277,4 @@ with col_side:
             </div>
             """, unsafe_allow_html=True)
     else:
-        st.caption("No near-ready recipes found.")
+        st.caption("No matches in near-ready recipes.")
