@@ -1,64 +1,49 @@
 import streamlit as st
 
 # -------------------------------
-# NATIVE APP STYLING (Glassmorphism)
+# APP CONFIG & THEME
 # -------------------------------
-st.set_page_config(layout="wide", page_title="Alchemy Pro", page_icon="🧿")
+st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
 st.markdown("""
     <style>
-    /* Main App Background */
-    .stApp {
-        background: radial-gradient(circle at top right, #1a1f35, #0a0c10);
-    }
-    
-    /* Hide Streamlit Header/Footer for App feel */
+    .stApp { background: radial-gradient(circle at top right, #1a1f35, #0a0c10); }
     header {visibility: hidden;}
     footer {visibility: hidden;}
-    
-    /* Card Styling */
     .app-card {
         background: rgba(255, 255, 255, 0.03);
         backdrop-filter: blur(10px);
         border-radius: 20px;
-        padding: 20px;
+        padding: 22px;
         border: 1px solid rgba(255, 255, 255, 0.1);
-        margin-bottom: 20px;
-        transition: transform 0.2s;
+        margin-bottom: 25px;
     }
-    .app-card:hover {
-        border: 1px solid #58a6ff;
-        transform: translateY(-2px);
-    }
-    
-    /* Typography */
-    .pill-title { color: #58a6ff; font-size: 1.4rem; font-weight: 700; margin: 0; }
-    .pill-tier { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; }
-    .pill-effect { color: #3fb950; font-weight: 500; font-size: 1rem; margin-top: 5px; }
-    
-    /* Ingredient Badges */
+    .pill-title { color: #58a6ff; font-size: 1.5rem; font-weight: 700; margin: 0; }
+    .pill-tier { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px; }
+    .pill-effect { color: #3fb950; font-weight: 500; font-size: 1.1rem; margin-top: 5px; }
     .badge {
         display: inline-block;
-        background: rgba(88, 166, 255, 0.1);
+        background: rgba(88, 166, 255, 0.08);
         color: #58a6ff;
-        padding: 4px 12px;
-        border-radius: 50px;
-        font-size: 0.8rem;
-        margin-right: 8px;
-        margin-top: 8px;
+        padding: 6px 14px;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        margin-right: 10px;
+        margin-top: 10px;
         border: 1px solid rgba(88, 166, 255, 0.2);
     }
-    
-    /* Sidebar Input Styling */
-    .stNumberInput {
-        background: rgba(0,0,0,0.2);
-        border-radius: 10px;
+    .total-box {
+        margin-top: 20px;
+        padding: 12px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 12px;
+        border: 1px dashed rgba(255, 255, 255, 0.1);
     }
     </style>
     """, unsafe_allow_html=True)
 
 # -------------------------------
-# DATASET
+# DATASET (Audited Recipes)
 # -------------------------------
 def get_db():
     return {
@@ -134,42 +119,27 @@ def get_db():
     }
 
 # -------------------------------
-# APP CORE
+# APP LOGIC
 # -------------------------------
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
 
-# Mobile-Style Sidebar
 with st.sidebar:
     st.markdown("<h1 style='color:#58a6ff;'>📦 Storage</h1>", unsafe_allow_html=True)
     handcrafted = st.toggle("✨ Handcrafted (3x Effect)")
     if st.button("🧹 Clear All"):
         for h in all_herbs: st.session_state[f"i_{h}"] = 0
-    
     st.divider()
     search = st.text_input("🔍 Search herbs...", "")
-    
-    inv = {}
-    for h in all_herbs:
-        if search.lower() in h.lower():
-            inv[h] = st.number_input(h.title(), min_value=0, key=f"i_{h}")
-        else:
-            inv[h] = st.session_state.get(f"i_{h}", 0)
+    inv = {h: st.number_input(h.title(), min_value=0, key=f"i_{h}") if search.lower() in h.lower() else st.session_state.get(f"i_{h}", 0) for h in all_herbs}
 
-# Main Dashboard
-st.markdown("<p class='pill-tier'>Immortal Alchemy Lab</p>", unsafe_allow_html=True)
-st.markdown("<h1 style='margin-top:-15px;'>Alchemy Dashboard</h1>", unsafe_allow_html=True)
-
-# Top Metric Row
-m1, m2, m3 = st.columns(3)
-total_stock = sum(inv.values())
-m1.metric("Items in Stock", total_stock)
-m2.metric("Discovered Herbs", sum(1 for v in inv.values() if v > 0))
-m3.metric("Handcrafted Mode", "ON" if handcrafted else "OFF")
-
+# Main UI
+st.markdown("<h1 style='color:white;'>Alchemy Dashboard</h1>", unsafe_allow_html=True)
+m1, m2 = st.columns(2)
+m1.metric("Items in Stock", sum(inv.values()))
+m2.metric("Handcrafted Mode", "ON" if handcrafted else "OFF")
 st.divider()
 
-# Recipe Calculation
 plans = []
 for name, variants in db.items():
     for v in variants:
@@ -177,19 +147,14 @@ for name, variants in db.items():
         if amt > 0:
             plans.append({"name": name, "tier": v["tier"], "amt": amt, "qi": v["qi"], "spec": v.get("spec"), "ing": v["ingredients"]})
 
-# Display as App Cards
 if plans:
-    # Sort: Best Qi first
-    plans = sorted(plans, key=lambda x: x['qi'], reverse=True)
-    
-    for p in plans:
-        # Calculate Boost
+    for p in sorted(plans, key=lambda x: x['qi'], reverse=True):
         val = p['qi'] * 3 if handcrafted else p['qi']
         effect_str = f"+{val}% Qi Boost" if val > 0 else p['spec']
         
         st.markdown(f"""
         <div class="app-card">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                 <div>
                     <p class="pill-tier">{p['tier']}</p>
                     <p class="pill-title">{p['name']}</p>
@@ -197,18 +162,22 @@ if plans:
                 </div>
                 <div style="text-align: right;">
                     <p style="font-size: 0.8rem; color: #8b949e; margin:0;">CRAFTABLE</p>
-                    <p style="font-size: 2rem; color: #58a6ff; font-weight: bold; margin:0;">{p['amt']}</p>
+                    <p style="font-size: 2.2rem; color: #58a6ff; font-weight: bold; margin:0;">{p['amt']}</p>
                 </div>
             </div>
-            <div style="margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 10px;">
-                {" ".join([f'<span class="badge">{ing.title()}: {req * p["amt"]}</span>' for ing, req in p["ing"].items()])}
+            
+            <div style="margin-top: 15px;">
+                <p style="font-size: 0.75rem; color: #8b949e; margin-bottom: 5px;">BASE RECIPE (PER PILL)</p>
+                {" ".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])}
+            </div>
+            
+            <div class="total-box">
+                <p style="font-size: 0.75rem; color: #58a6ff; margin-bottom: 8px; font-weight: bold; letter-spacing: 1px;">TOTAL MATERIALS FOR {p['amt']}x CRAFT</p>
+                <div style="display: flex; flex-wrap: wrap; gap: 15px;">
+                    {" ".join([f'<div style="font-size: 0.9rem; color: white;">• {ing.title()}: <b>{req * p["amt"]}</b></div>' for ing, req in p["ing"].items()])}
+                </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 else:
-    st.markdown("""
-    <div style="text-align: center; padding: 50px; opacity: 0.5;">
-        <p style="font-size: 4rem;">🥣</p>
-        <p>Your cauldron is cold. Add ingredients in the storage chest to begin.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; opacity: 0.5; padding: 50px;'><p style='font-size: 4rem;'>🥣</p><p>Add ingredients to begin brewing.</p></div>", unsafe_allow_html=True)
