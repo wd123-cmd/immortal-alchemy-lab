@@ -5,6 +5,7 @@ import streamlit as st
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
+# CSS Injection
 st.markdown("""
     <style>
     .stApp { background: radial-gradient(circle at top right, #1a1f35, #0a0c10); }
@@ -26,6 +27,7 @@ st.markdown("""
         border: 1px solid rgba(255, 255, 255, 0.1);
         margin-bottom: 25px;
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        color: white;
     }
     
     .pill-title { color: #58a6ff; font-size: 1.6rem; font-weight: 700; margin: 0; }
@@ -151,7 +153,7 @@ def get_db():
     }
 
 # -------------------------------
-# CORE LOGIC
+# LOGIC & INVENTORY
 # -------------------------------
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
@@ -159,14 +161,11 @@ all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in
 with st.sidebar:
     st.markdown("<h1 style='color:#58a6ff;'>📦 Storage</h1>", unsafe_allow_html=True)
     handcrafted = st.toggle("✨ Handcrafted (3x Effect)")
-    
-    if st.button("🧹 Clear All Inventory"):
+    if st.button("🧹 Clear Inventory"):
         for h in all_herbs: st.session_state[f"i_{h}"] = 0
         st.rerun()
-        
     st.divider()
-    search = st.text_input("🔍 Filter Chest Items", "")
-    
+    search = st.text_input("🔍 Filter Herbs", "")
     inv = {}
     for h in all_herbs:
         val = st.session_state.get(f"i_{h}", 0)
@@ -175,44 +174,33 @@ with st.sidebar:
         else:
             inv[h] = val
 
-# Process Crafting
-plans = []
-discovery = []
-total_qi_potential = 0
+# Calculation Engine
+plans, discovery = [], []
+total_qi = 0
 
 for name, variants in db.items():
     for v in variants:
-        possible_crafts = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
-        amt = min(possible_crafts) if possible_crafts else 0
-        
-        missing = []
-        for ing, req in v["ingredients"].items():
-            if inv.get(ing, 0) < req:
-                missing.append({"name": ing, "needed": req - inv.get(ing, 0)})
+        possible = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
+        amt = min(possible) if possible else 0
+        missing = [ing for ing, req in v["ingredients"].items() if inv.get(ing, 0) < req]
         
         if amt > 0:
             boost_per = v["qi"] * 3 if handcrafted else v["qi"]
-            total_qi_potential += (boost_per * amt)
-            plans.append({
-                "name": name, 
-                "tier": v["tier"], 
-                "amt": amt, 
-                "qi": boost_per, 
-                "spec": v.get("spec"), 
-                "ing": v["ingredients"]
-            })
+            total_qi += (boost_per * amt)
+            plans.append({"name": name, "tier": v["tier"], "amt": amt, "qi": boost_per, "spec": v.get("spec"), "ing": v["ingredients"]})
         elif len(missing) == 1:
-            discovery.append({"name": name, "tier": v["tier"], "missing": missing[0]})
+            m_ing = missing[0]
+            discovery.append({"name": name, "tier": v["tier"], "m_name": m_ing, "m_qty": v["ingredients"][m_ing] - inv.get(m_ing, 0)})
 
 # -------------------------------
-# UI LAYOUT
+# DISPLAY
 # -------------------------------
-st.markdown("<h1 style='color:white; margin-bottom: 0;'>Alchemy Dashboard</h1>", unsafe_allow_html=True)
-st.markdown("<p style='color:#8b949e; margin-bottom: 20px;'>Maximize your cultivation efficiency</p>", unsafe_allow_html=True)
+st.title("Alchemy Dashboard")
+st.markdown("<p style='color:#8b949e;'>Cultivate with maximum efficiency</p>", unsafe_allow_html=True)
 
 m1, m2, m3 = st.columns(3)
-m1.metric("Stockpile Items", sum(inv.values()))
-m2.metric("Total Qi Potential", f"+{total_qi_potential}%")
+m1.metric("Stock", sum(inv.values()))
+m2.metric("Total Qi potential", f"+{total_qi}%")
 m3.metric("Mode", "Handcrafted" if handcrafted else "Standard")
 st.divider()
 
@@ -221,65 +209,48 @@ col_main, col_side = st.columns([2, 1])
 with col_main:
     if plans:
         for p in sorted(plans, key=lambda x: x['qi'], reverse=True):
-            # Benefit Tags for Header
-            header_benefits = ""
-            if p['qi'] > 0:
-                header_benefits += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi Boost</span>'
-            if p.get('spec'):
-                header_benefits += f'<span class="benefit-tag spec-tag">✨ {p["spec"]}</span>'
+            # Benefit Tags
+            tags = ""
+            if p['qi'] > 0: tags += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi Boost</span>'
+            if p['spec']: tags += f'<span class="benefit-tag spec-tag">✨ {p["spec"]}</span>'
             
-            # Batch Summary Calculation
-            batch_summary_html = ""
-            if p['qi'] > 0:
-                batch_summary_html += f'<p style="font-size: 0.85rem; color: #3fb950; margin:0;">Total Batch Qi: <b>+{p["qi"] * p["amt"]}%</b></p>'
-            if p.get('spec'):
-                batch_summary_html += f'<p style="font-size: 0.85rem; color: #d2a8ff; margin:0;">Batch Effect: <b>{p["amt"]}x {p["spec"]}</b></p>'
-
-            # HTML Building
-            badges_html = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
-            totals_html = "".join([f'<div style="font-size: 0.95rem; color: #f0f6fc; min-width: 150px;">• {ing.title()}: <b>{req * p["amt"]}</b></div>' for ing, req in p["ing"].items()])
+            # Badge & Total logic
+            badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
+            totals = "".join([f'<div style="min-width: 140px; font-size: 0.9rem;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
             
-            card_html = f"""
+            # THE RENDER
+            html = f"""
             <div class="app-card">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div style="display: flex; justify-content: space-between;">
                     <div>
-                        <p class="pill-tier">{p['tier']}</p>
-                        <p class="pill-title">{p['name']}</p>
-                        <div>{header_benefits}</div>
+                        <div class="pill-tier">{p['tier']}</div>
+                        <div class="pill-title">{p['name']}</div>
+                        <div style="margin-top:5px;">{tags}</div>
                     </div>
                     <div style="text-align: right;">
-                        <p style="font-size: 0.8rem; color: #8b949e; margin:0;">CRAFTABLE</p>
-                        <p style="font-size: 2.5rem; color: #58a6ff; font-weight: bold; margin:0;">{p['amt']}</p>
+                        <div style="font-size: 0.7rem; color: #8b949e;">CRAFTABLE</div>
+                        <div style="font-size: 2.2rem; color: #58a6ff; font-weight: bold;">{p['amt']}</div>
                     </div>
                 </div>
-                
-                <div style="margin-top: 18px;">
-                    <p style="font-size: 0.75rem; color: #8b949e; margin-bottom: 5px; font-weight: bold;">BASE RECIPE (PER PILL)</p>
-                    <div style="flex-wrap: wrap; display: flex;">{badges_html}</div>
-                </div>
-
+                <div style="margin-top:15px; font-size: 0.8rem; color:#8b949e; font-weight:bold;">RECIPE</div>
+                <div style="display: flex; flex-wrap: wrap;">{badges}</div>
                 <div class="total-box">
-                    <p style="font-size: 0.8rem; color: #58a6ff; margin-bottom: 10px; font-weight: bold;">BATCH SUMMARY ({p['amt']} PILLS)</p>
-                    <div style="display: flex; flex-wrap: wrap; gap: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 10px;">
-                        {totals_html}
-                    </div>
-                    {batch_summary_html}
+                    <div style="font-size: 0.8rem; color:#58a6ff; font-weight:bold; margin-bottom:8px;">BATCH TOTALS</div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 5px 15px;">{totals}</div>
                 </div>
             </div>
             """
-            # KEY FIX: Ensure unsafe_allow_html is True
-            st.markdown(card_html, unsafe_allow_html=True)
+            st.markdown(html, unsafe_allow_html=True)
     else:
-        st.markdown("<div class='floating-cauldron'>🥣</div><p style='text-align:center; color:#8b949e;'>Cauldron Empty. Add ingredients.</p>", unsafe_allow_html=True)
+        st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
 
 with col_side:
-    st.markdown("### 🧪 Near Completion")
-    if discovery:
-        for d in discovery[:6]:
-            st.markdown(f"""<div class="discovery-card">
-                <p style="margin:0; font-size: 0.7rem; color: #8b949e; text-transform: uppercase;">{d['tier']}</p>
-                <p style="margin:0; font-weight: bold; color: #f0f6fc; font-size: 1rem;">{d['name']}</p>
-                <p style="margin-top:5px; font-size: 0.85rem; color: #ffab70;">Missing: <b>{d['missing']['needed']}x {d['missing']['name'].title()}</b></p>
-            </div>""", unsafe_allow_html=True)
-    else:
-        st.write("No near-complete recipes.")
+    st.subheader("Near Ready")
+    for d in discovery[:5]:
+        st.markdown(f"""
+        <div class="discovery-card">
+            <div style="font-size: 0.7rem; color:#8b949e;">{d['tier']}</div>
+            <div style="font-weight:bold;">{d['name']}</div>
+            <div style="color:#ffab70; font-size:0.85rem;">Missing: {d['m_qty']}x {d['m_name'].title()}</div>
+        </div>
+        """, unsafe_allow_html=True)
