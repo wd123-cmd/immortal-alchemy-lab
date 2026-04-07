@@ -31,7 +31,6 @@ st.markdown("""
     .pill-title { color: #58a6ff; font-size: 1.6rem; font-weight: 700; margin: 0; }
     .pill-tier { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
     
-    /* Benefit Styling */
     .benefit-tag {
         display: inline-block;
         padding: 4px 12px;
@@ -39,6 +38,7 @@ st.markdown("""
         font-size: 0.9rem;
         font-weight: 600;
         margin-right: 8px;
+        margin-top: 5px;
     }
     .qi-tag { background: rgba(63, 185, 80, 0.15); color: #3fb950; border: 1px solid rgba(63, 185, 80, 0.3); }
     .spec-tag { background: rgba(187, 128, 255, 0.15); color: #d2a8ff; border: 1px solid rgba(187, 128, 255, 0.3); }
@@ -175,7 +175,7 @@ with st.sidebar:
         else:
             inv[h] = val
 
-# Calculation
+# Process Crafting
 plans = []
 discovery = []
 total_qi_potential = 0
@@ -191,9 +191,16 @@ for name, variants in db.items():
                 missing.append({"name": ing, "needed": req - inv.get(ing, 0)})
         
         if amt > 0:
-            boost = v["qi"] * 3 if handcrafted else v["qi"]
-            total_qi_potential += (boost * amt)
-            plans.append({"name": name, "tier": v["tier"], "amt": amt, "qi": v["qi"], "spec": v.get("spec"), "ing": v["ingredients"]})
+            boost_per = v["qi"] * 3 if handcrafted else v["qi"]
+            total_qi_potential += (boost_per * amt)
+            plans.append({
+                "name": name, 
+                "tier": v["tier"], 
+                "amt": amt, 
+                "qi": boost_per, 
+                "spec": v.get("spec"), 
+                "ing": v["ingredients"]
+            })
         elif len(missing) == 1:
             discovery.append({"name": name, "tier": v["tier"], "missing": missing[0]})
 
@@ -214,23 +221,31 @@ col_main, col_side = st.columns([2, 1])
 with col_main:
     if plans:
         for p in sorted(plans, key=lambda x: x['qi'], reverse=True):
-            # Calculate Benefits
-            val = p['qi'] * 3 if handcrafted else p['qi']
-            benefit_html = ""
-            if val > 0:
-                benefit_html += f'<span class="benefit-tag qi-tag">+{val}% Qi Boost</span>'
+            # Benefit Tags for Header
+            header_benefits = ""
+            if p['qi'] > 0:
+                header_benefits += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi Boost</span>'
             if p.get('spec'):
-                benefit_html += f'<span class="benefit-tag spec-tag">✨ {p["spec"]}</span>'
+                header_benefits += f'<span class="benefit-tag spec-tag">✨ {p["spec"]}</span>'
             
+            # Batch Summary Calculation
+            batch_summary_html = ""
+            if p['qi'] > 0:
+                batch_summary_html += f'<p style="font-size: 0.85rem; color: #3fb950; margin:0;">Total Batch Qi: <b>+{p["qi"] * p["amt"]}%</b></p>'
+            if p.get('spec'):
+                batch_summary_html += f'<p style="font-size: 0.85rem; color: #d2a8ff; margin:0;">Batch Effect: <b>{p["amt"]}x {p["spec"]}</b></p>'
+
+            # HTML Building
             badges_html = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
             totals_html = "".join([f'<div style="font-size: 0.95rem; color: #f0f6fc; min-width: 150px;">• {ing.title()}: <b>{req * p["amt"]}</b></div>' for ing, req in p["ing"].items()])
             
-            st.markdown(f"""<div class="app-card">
+            card_html = f"""
+            <div class="app-card">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div>
                         <p class="pill-tier">{p['tier']}</p>
                         <p class="pill-title">{p['name']}</p>
-                        <div style="margin-top: 8px;">{benefit_html}</div>
+                        <div>{header_benefits}</div>
                     </div>
                     <div style="text-align: right;">
                         <p style="font-size: 0.8rem; color: #8b949e; margin:0;">CRAFTABLE</p>
@@ -245,12 +260,15 @@ with col_main:
 
                 <div class="total-box">
                     <p style="font-size: 0.8rem; color: #58a6ff; margin-bottom: 10px; font-weight: bold;">BATCH SUMMARY ({p['amt']} PILLS)</p>
-                    <div style="display: flex; flex-wrap: wrap; gap: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px; margin-bottom: 10px;">
+                    <div style="display: flex; flex-wrap: wrap; gap: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px; margin-bottom: 10px;">
                         {totals_html}
                     </div>
-                    <p style="font-size: 0.85rem; color: #3fb950; margin:0;">Total Batch Gain: <b>+{val * p['amt']}% Qi Potential</b></p>
+                    {batch_summary_html}
                 </div>
-            </div>""", unsafe_allow_html=True)
+            </div>
+            """
+            # KEY FIX: Ensure unsafe_allow_html is True
+            st.markdown(card_html, unsafe_allow_html=True)
     else:
         st.markdown("<div class='floating-cauldron'>🥣</div><p style='text-align:center; color:#8b949e;'>Cauldron Empty. Add ingredients.</p>", unsafe_allow_html=True)
 
