@@ -1,7 +1,7 @@
 import streamlit as st
 
 # -------------------------------
-# APP CONFIG & MOBILE-FLUID STYLING
+# APP CONFIG & MOBILE-OPTIMIZED STYLING
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
@@ -11,22 +11,40 @@ st.markdown("""
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Style Tabs to look like a Menu */
+    /* Tabs Styling */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
+        gap: 8px;
         justify-content: center;
     }
     .stTabs [data-baseweb="tab"] {
         background-color: rgba(255, 255, 255, 0.05);
-        border-radius: 10px 10px 0 0;
-        padding: 10px 20px;
-        color: white;
+        border-radius: 8px 8px 0 0;
+        padding: 12px 15px;
+        color: #8b949e;
     }
     .stTabs [aria-selected="true"] {
-        background-color: rgba(88, 166, 255, 0.2) !important;
+        background-color: rgba(88, 166, 255, 0.15) !important;
+        color: #58a6ff !important;
         border-bottom: 2px solid #58a6ff !important;
     }
 
+    /* INGREDIENTS TAB READABILITY FIX */
+    /* Make labels bright and clear */
+    label {
+        color: #f0f6fc !important; 
+        font-weight: 600 !important;
+        font-size: 0.95rem !important;
+        margin-bottom: 4px !important;
+    }
+    
+    /* Style the input boxes */
+    div[data-baseweb="input"] {
+        background-color: rgba(0, 0, 0, 0.4) !important;
+        border: 1px solid rgba(88, 166, 255, 0.3) !important;
+        border-radius: 8px !important;
+    }
+
+    /* Dashboard Card Styling */
     .app-card {
         background: rgba(255, 255, 255, 0.05);
         backdrop-filter: blur(15px);
@@ -102,42 +120,42 @@ def get_db():
         "Soul Replenishing": [{"tier": "Heavenly", "ingredients": {"healing sunflower": 2, "red ginseng": 1, "ironbone grass": 2, "seven star flower": 1}, "qi": 0, "spec": "12% Lifespan (Perm)"}]
     }
 
-# Initialize state
+# Persistence
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
 for h in all_herbs:
     if f"i_{h}" not in st.session_state: st.session_state[f"i_{h}"] = 0
 
 # -------------------------------
-# MENU TABS
+# UI TABS
 # -------------------------------
 tab1, tab2 = st.tabs(["🥣 Lab Dashboard", "🎒 Ingredients"])
 
 with tab2:
-    st.subheader("Inventory Management")
-    col_set1, col_set2 = st.columns(2)
-    with col_set1:
-        if st.button("🧹 Reset All to 0"):
+    st.markdown("### Inventory Chest")
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        if st.button("🧹 Clear All"):
             for h in all_herbs: st.session_state[f"i_{h}"] = 0
             st.rerun()
-    with col_set2:
+    with c2:
         handcrafted = st.toggle("✨ Handcrafted (3x)", value=False)
     
-    herb_search = st.text_input("🔍 Search Ingredients...", placeholder="Type herb name...").lower()
+    h_search = st.text_input("🔍 Search Ingredients...", placeholder="Type here...").lower()
     
-    # Show inputs in a clean grid
-    grid_cols = st.columns(2)
-    for i, herb in enumerate([h for h in all_herbs if herb_search in h]):
-        with grid_cols[i % 2]:
+    # Input Grid
+    cols = st.columns(2)
+    filtered_herbs = [h for h in all_herbs if h_search in h]
+    for i, herb in enumerate(filtered_herbs):
+        with cols[i % 2]:
             st.number_input(herb.title(), min_value=0, key=f"i_{herb}")
 
 with tab1:
-    st.subheader("Craftable Recipes")
-    pill_query = st.text_input("🔍 Live Search Pills...", placeholder="Search by name or effect...").lower()
+    st.markdown("### Craftable Recipes")
+    p_query = st.text_input("🔍 Search Dashboard...", placeholder="Name, tier, or effect...").lower()
     
     inv = {h: st.session_state[f"i_{h}"] for h in all_herbs}
     
-    # Calculation
     craftable = []
     for name, variants in db.items():
         for v in variants:
@@ -145,7 +163,7 @@ with tab1:
             amt = min(possible) if possible else 0
             if amt > 0:
                 qi_val = v["qi"] * 3 if handcrafted else v["qi"]
-                if not pill_query or pill_query in name.lower() or pill_query in v.get('spec', '').lower() or pill_query in v['tier'].lower():
+                if not p_query or p_query in name.lower() or p_query in v.get('spec', '').lower() or p_query in v['tier'].lower():
                     craftable.append({"name": name, "tier": v["tier"], "amt": amt, "qi": qi_val, "spec": v.get("spec"), "ing": v["ingredients"]})
 
     if craftable:
@@ -161,7 +179,7 @@ with tab1:
             badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
             totals = "".join([f'<div style="font-size: 0.8rem; margin-bottom: 2px;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
             
-            card_html = f"""<div class="app-card">
+            card = f"""<div class="app-card">
 <div style="display: flex; justify-content: space-between; align-items: center;">
 <div><div class="pill-tier">{p['tier']}</div><div class="pill-title">{p['name']}</div>{tags}</div>
 <div style="text-align: right;"><div style="font-size: 0.6rem; color: #8b949e;">QTY</div><div style="font-size: 1.8rem; color: #58a6ff; font-weight: bold;">{p['amt']}</div></div>
@@ -172,7 +190,6 @@ with tab1:
 {totals}
 </div>
 </div>"""
-            st.markdown(card_html, unsafe_allow_html=True)
+            st.markdown(card, unsafe_allow_html=True)
     else:
         st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
-        st.info("No craftable recipes. Update your ingredients in the tab above.")
