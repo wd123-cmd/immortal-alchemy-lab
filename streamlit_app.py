@@ -64,6 +64,14 @@ st.markdown("""
         border-radius: 15px;
         border: 1px dashed rgba(88, 166, 255, 0.3);
     }
+    
+    .discovery-card {
+        background: rgba(255, 171, 112, 0.05);
+        border: 1px solid rgba(255, 171, 112, 0.2);
+        padding: 15px;
+        border-radius: 15px;
+        margin-bottom: 10px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -145,7 +153,7 @@ def get_db():
     }
 
 # -------------------------------
-# CORE INVENTORY LOGIC
+# CORE LOGIC
 # -------------------------------
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
@@ -157,7 +165,7 @@ with st.sidebar:
         for h in all_herbs: st.session_state[f"i_{h}"] = 0
         st.rerun()
     st.divider()
-    herb_search = st.text_input("🔍 Search Storage Herbs", "")
+    herb_search = st.text_input("🔍 Filter Herbs In Storage", "")
     inv = {}
     for h in all_herbs:
         val = st.session_state.get(f"i_{h}", 0)
@@ -166,12 +174,17 @@ with st.sidebar:
         else:
             inv[h] = val
 
-# Calculation Engine
+# Pre-calculate ALL possible plans first to enable dashboard searching
 plans = []
+discovery = []
 for name, variants in db.items():
     for v in variants:
         possible = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
         amt = min(possible) if possible else 0
+        
+        # Discovery Logic
+        missing = [ing for ing, req in v["ingredients"].items() if inv.get(ing, 0) < req]
+        
         if amt > 0:
             boost_per = v["qi"] * 3 if handcrafted else v["qi"]
             plans.append({
@@ -182,35 +195,48 @@ for name, variants in db.items():
                 "spec": v.get("spec"), 
                 "ing": v["ingredients"]
             })
+        elif len(missing) == 1:
+            m_ing = missing[0]
+            discovery.append({
+                "name": name, 
+                "tier": v["tier"], 
+                "m_name": m_ing, 
+                "m_qty": v["ingredients"][m_ing] - inv.get(m_ing, 0)
+            })
 
 # -------------------------------
 # MAIN DASHBOARD UI
 # -------------------------------
 st.title("Alchemy Dashboard")
 
-# MAIN DASHBOARD PILL SEARCH
-if plans:
-    search_col1, search_col2 = st.columns([2, 1])
-    with search_col1:
-        pill_search = st.text_input("🔍 Search Craftable Pills", "", placeholder="e.g. Dragon, Heavenly, Vitality...")
-    
-    # Filter the plans based on pill search
-    filtered_plans = [p for p in plans if pill_search.lower() in p['name'].lower() or pill_search.lower() in p['tier'].lower() or (p['spec'] and pill_search.lower() in p['spec'].lower())]
-    
+# DASHBOARD SEARCH (Triggers rerun on every change)
+pill_search = st.text_input("🔍 Search Craftable Recipes", key="main_search", placeholder="Type pill name, tier, or benefit (e.g. 'Dragon', 'Heavenly', 'Qi')...")
+
+col_main, col_side = st.columns([2.2, 1])
+
+with col_main:
+    # Filter plans based on search text
+    filtered_plans = [
+        p for p in plans 
+        if pill_search.lower() in p['name'].lower() 
+        or pill_search.lower() in p['tier'].lower() 
+        or (p['spec'] and pill_search.lower() in p['spec'].lower())
+    ]
+
     if filtered_plans:
         for p in sorted(filtered_plans, key=lambda x: x['qi'], reverse=True):
-            # Duration Detection
+            # Duration Logic
             is_permanent = any(word in (p['spec'] or "").lower() for word in ["perm", "lifespan", "nirvana"])
             duration_label = "⏳ Permanent" if is_permanent else "⏱️ Temporary"
             
-            # Benefit Badges
+            # Benefit Tags
             benefit_badges = f'<span class="benefit-tag dur-tag">{duration_label}</span>'
             if p['qi'] > 0: benefit_badges += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi Boost</span>'
             if p['spec']:
                 for effect in p['spec'].split('/'):
                     benefit_badges += f'<span class="benefit-tag spec-tag">✨ {effect.strip()}</span>'
 
-            # Recipe & Summary
+            # Ingredients & Summaries
             badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
             totals = "".join([f'<div style="min-width: 140px; font-size: 0.9rem;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
             
@@ -238,8 +264,29 @@ if plans:
             </div>
             """
             st.markdown(html, unsafe_allow_html=True)
+    elif pill_search and not filtered_plans:
+        st.warning(f"No craftable recipes match '{pill_search}'.")
     else:
-        st.info("No craftable pills match your search criteria.")
-else:
-    st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
-    st.info("Storage is empty. Add herbs in the sidebar to reveal craftable pills.")
+        st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
+        st.info("Storage empty or no recipes found. Add ingredients in the sidebar to begin.")
+
+with col_side:
+    st.subheader("🧪 Near Ready")
+    # Filter discovery based on search as well
+    filtered_discovery = [
+        d for d in discovery 
+        if pill_search.lower() in d['name'].lower() 
+        or pill_search.lower() in d['tier'].lower()
+    ]
+    
+    if filtered_discovery:
+        for d in filtered_discovery[:6]:
+            st.markdown(f"""
+            <div class="discovery-card">
+                <div style="font-size: 0.7rem; color:#8b949e; text-transform: uppercase;">{d['tier']}</div>
+                <div style="font-weight:bold; color:white;">{d['name']}</div>
+                <div style="color:#ffab70; font-size:0.85rem; margin-top:4px;">Missing: <b>{d['m_qty']}x {d['m_name'].title()}</b></div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.caption("No near-ready recipes found.")
