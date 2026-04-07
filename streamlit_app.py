@@ -1,7 +1,7 @@
 import streamlit as st
 
 # -------------------------------
-# APP CONFIG & NATIVE APP STYLING
+# APP CONFIG & STYLING
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
@@ -11,6 +11,7 @@ st.markdown("""
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
+    /* Animation for empty state */
     @keyframes float {
         0% { transform: translateY(0px); }
         50% { transform: translateY(-15px); }
@@ -25,12 +26,12 @@ st.markdown("""
         padding: 24px;
         border: 1px solid rgba(255, 255, 255, 0.1);
         margin-bottom: 25px;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-        color: white;
+        transition: transform 0.2s ease;
     }
+    .app-card:hover { transform: scale(1.01); border-color: rgba(88, 166, 255, 0.4); }
     
     .pill-title { color: #58a6ff; font-size: 1.6rem; font-weight: 700; margin: 0; }
-    .pill-tier { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
+    .pill-tier { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; }
     
     .benefit-tag {
         display: inline-block;
@@ -64,19 +65,11 @@ st.markdown("""
         border-radius: 15px;
         border: 1px dashed rgba(88, 166, 255, 0.3);
     }
-    
-    .discovery-card {
-        background: rgba(255, 171, 112, 0.05);
-        border: 1px solid rgba(255, 171, 112, 0.2);
-        padding: 15px;
-        border-radius: 15px;
-        margin-bottom: 10px;
-    }
     </style>
     """, unsafe_allow_html=True)
 
 # -------------------------------
-# DATASET
+# ALCHEMY DATABASE
 # -------------------------------
 def get_db():
     return {
@@ -153,128 +146,100 @@ def get_db():
     }
 
 # -------------------------------
-# DATA PROCESSING
+# INVENTORY LOGIC
 # -------------------------------
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
 
-# Persistent Sidebar Inventory
 with st.sidebar:
     st.markdown("<h1 style='color:#58a6ff;'>📦 Storage</h1>", unsafe_allow_html=True)
     handcrafted = st.toggle("✨ Handcrafted (3x Effect)")
-    
     if st.button("🧹 Clear Inventory"):
         for h in all_herbs: st.session_state[f"i_{h}"] = 0
         st.rerun()
-    
     st.divider()
-    herb_filter = st.text_input("🔍 Filter Sidebar Herbs", "")
-    
+    herb_search = st.text_input("🔍 Filter Sidebar", "")
     inv = {}
     for h in all_herbs:
         key = f"i_{h}"
         if key not in st.session_state: st.session_state[key] = 0
-        
-        if herb_filter.lower() in h.lower():
+        if herb_search.lower() in h.lower():
             inv[h] = st.number_input(h.title(), min_value=0, key=key)
         else:
             inv[h] = st.session_state[key]
 
-# Pre-calculate plans for searching
-all_plans = []
-discovery = []
+# -------------------------------
+# SEARCH PRINCIPLE (GOOGLE STYLE)
+# -------------------------------
+st.title("Alchemy Dashboard")
+# The "Google Principle" - Central search bar that dictates the whole view
+search_query = st.text_input("", placeholder="Search for pills, effects, or tiers (e.g. 'Dragon', 'Permanent', 'Qi')...", label_visibility="collapsed").lower()
 
+# Calculation Engine (Calculates all, then filters for the "Live" feel)
+craftable_plans = []
 for name, variants in db.items():
     for v in variants:
         possible = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
         amt = min(possible) if possible else 0
-        missing = [ing for ing, req in v["ingredients"].items() if inv.get(ing, 0) < req]
         
         if amt > 0:
-            boost = v["qi"] * 3 if handcrafted else v["qi"]
-            all_plans.append({
-                "name": name, "tier": v["tier"], "amt": amt, 
-                "qi": boost, "spec": v.get("spec"), "ing": v["ingredients"]
-            })
-        elif len(missing) == 1:
-            m_ing = missing[0]
-            discovery.append({
-                "name": name, "tier": v["tier"], 
-                "m_name": m_ing, "m_qty": v["ingredients"][m_ing] - inv.get(m_ing, 0)
-            })
+            qi_val = v["qi"] * 3 if handcrafted else v["qi"]
+            # Google Logic: Search across name, tier, and effects
+            match_str = f"{name} {v['tier']} {v.get('spec', '')} {qi_val} qi".lower()
+            if not search_query or search_query in match_str:
+                craftable_plans.append({
+                    "name": name, "tier": v["tier"], "amt": amt, 
+                    "qi": qi_val, "spec": v.get("spec"), "ing": v["ingredients"]
+                })
 
 # -------------------------------
-# MAIN INTERFACE
+# RENDERING
 # -------------------------------
-st.title("Alchemy Dashboard")
+if craftable_plans:
+    # Sort by Qi Power descending
+    for p in sorted(craftable_plans, key=lambda x: x['qi'], reverse=True):
+        # Determine Duration
+        is_perm = any(w in (p['spec'] or "").lower() for w in ["perm", "lifespan", "nirvana"])
+        dur_label = "⏳ Permanent" if is_perm else "⏱️ Temporary"
+        
+        # Tags Generation
+        tags = f'<span class="benefit-tag dur-tag">{dur_label}</span>'
+        if p['qi'] > 0: tags += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi Boost</span>'
+        if p['spec']:
+            for s in p['spec'].split('/'):
+                tags += f'<span class="benefit-tag spec-tag">✨ {s.strip()}</span>'
 
-# The Live Search Input
-pill_query = st.text_input("🔍 Search Craftable Recipes", key="live_pill_search", placeholder="Type pill name, tier, or benefit...")
-
-col_main, col_side = st.columns([2.2, 1])
-
-with col_main:
-    # Immediate Filtering
-    q = pill_query.lower()
-    filtered = [p for p in all_plans if q in p['name'].lower() or q in p['tier'].lower() or (p['spec'] and q in p['spec'].lower())]
-
-    if filtered:
-        for p in sorted(filtered, key=lambda x: x['qi'], reverse=True):
-            # Duration & Benefit logic
-            is_perm = any(w in (p['spec'] or "").lower() for w in ["perm", "lifespan", "nirvana"])
-            dur = "⏳ Permanent" if is_perm else "⏱️ Temporary"
-            
-            tags = f'<span class="benefit-tag dur-tag">{dur}</span>'
-            if p['qi'] > 0: tags += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi Boost</span>'
-            if p['spec']:
-                for s in p['spec'].split('/'):
-                    tags += f'<span class="benefit-tag spec-tag">✨ {s.strip()}</span>'
-
-            badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
-            totals = "".join([f'<div style="min-width: 140px; font-size: 0.9rem;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
-            
-            html = f"""
-            <div class="app-card">
-                <div style="display: flex; justify-content: space-between;">
-                    <div>
-                        <div class="pill-tier">{p['tier']}</div>
-                        <div class="pill-title">{p['name']}</div>
-                        <div style="margin-top:5px;">{tags}</div>
-                    </div>
-                    <div style="text-align: right;">
-                        <div style="font-size: 0.7rem; color: #8b949e;">CRAFTABLE</div>
-                        <div style="font-size: 2.2rem; color: #58a6ff; font-weight: bold;">{p['amt']}</div>
-                    </div>
+        # Recipe & Batch Summary
+        badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
+        totals = "".join([f'<div style="min-width: 140px; font-size: 0.9rem; color: #f0f6fc;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
+        
+        card_html = f"""
+        <div class="app-card">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <div class="pill-tier">{p['tier']}</div>
+                    <div class="pill-title">{p['name']}</div>
+                    <div style="margin-top:5px;">{tags}</div>
                 </div>
-                <div style="margin-top:15px; font-size: 0.8rem; color:#8b949e; font-weight:bold;">RECIPE</div>
-                <div style="display: flex; flex-wrap: wrap;">{badges}</div>
-                <div class="total-box">
-                    <div style="font-size: 0.8rem; color:#58a6ff; font-weight:bold; margin-bottom:8px;">BATCH TOTALS</div>
-                    <div style="display: flex; flex-wrap: wrap; gap: 5px 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom:8px; margin-bottom:8px;">{totals}</div>
-                    <p style="color:#f0f6fc; margin:0; font-size: 0.85rem;">Effect Duration: <b>{dur}</b></p>
-                    <p style="color:#3fb950; margin:0; font-size: 0.85rem;">Cumulative Power: <b>+{p['qi'] * p['amt']}% Potential</b></p>
+                <div style="text-align: right;">
+                    <div style="font-size: 0.75rem; color: #8b949e; letter-spacing: 1px;">AVAILABLE</div>
+                    <div style="font-size: 2.5rem; color: #58a6ff; font-weight: bold; line-height: 1;">{p['amt']}</div>
                 </div>
             </div>
-            """
-            st.markdown(html, unsafe_allow_html=True)
-    elif pill_query:
-        st.warning(f"No results found for '{pill_query}'.")
-    else:
-        st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
-
-with col_side:
-    st.subheader("🧪 Near Ready")
-    # Filter Discovery with search too
-    f_discovery = [d for d in discovery if q in d['name'].lower() or q in d['tier'].lower()]
-    
-    if f_discovery:
-        for d in f_discovery[:8]:
-            st.markdown(f"""
-            <div class="discovery-card">
-                <div style="font-size: 0.7rem; color:#8b949e; text-transform: uppercase;">{d['tier']}</div>
-                <div style="font-weight:bold; color:white;">{d['name']}</div>
-                <div style="color:#ffab70; font-size:0.85rem; margin-top:4px;">Missing: <b>{d['m_qty']}x {d['m_name'].title()}</b></div>
+            <div style="margin-top:20px; font-size: 0.8rem; color:#8b949e; font-weight:bold; text-transform:uppercase; letter-spacing:1px;">Required Materials</div>
+            <div style="display: flex; flex-wrap: wrap; margin-bottom: 10px;">{badges}</div>
+            <div class="total-box">
+                <div style="font-size: 0.8rem; color:#58a6ff; font-weight:bold; margin-bottom:10px;">PROJECTION FOR {p['amt']}x PILLS</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom:10px; margin-bottom:10px;">{totals}</div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+                    <span style="color:#3fb950;">Cumulative Qi: <b>+{p['qi'] * p['amt']}%</b></span>
+                    <span style="color:#8b949e;">Duration: {dur_label}</span>
+                </div>
             </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.caption("No matches in near-ready recipes.")
+        </div>
+        """
+        st.markdown(card_html, unsafe_allow_html=True)
+elif search_query:
+    st.info(f"No craftable pills match your search for '{search_query}'.")
+else:
+    st.markdown("<div class='floating-cauldron'>🥣</div><p style='text-align:center; color:#8b949e;'>Add ingredients to your chest to see craftable recipes.</p>", unsafe_allow_html=True)
