@@ -5,7 +5,6 @@ import streamlit as st
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
-# CSS Injection
 st.markdown("""
     <style>
     .stApp { background: radial-gradient(circle at top right, #1a1f35, #0a0c10); }
@@ -64,19 +63,11 @@ st.markdown("""
         border-radius: 15px;
         border: 1px dashed rgba(88, 166, 255, 0.3);
     }
-
-    .discovery-card {
-        background: rgba(255, 171, 112, 0.05);
-        border: 1px solid rgba(255, 171, 112, 0.2);
-        padding: 15px;
-        border-radius: 15px;
-        margin-bottom: 10px;
-    }
     </style>
     """, unsafe_allow_html=True)
 
 # -------------------------------
-# DATASET
+# VERIFIED MASTER DATASET
 # -------------------------------
 def get_db():
     return {
@@ -153,7 +144,7 @@ def get_db():
     }
 
 # -------------------------------
-# LOGIC & INVENTORY
+# INVENTORY LOGIC
 # -------------------------------
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
@@ -174,83 +165,75 @@ with st.sidebar:
         else:
             inv[h] = val
 
-# Calculation Engine
-plans, discovery = [], []
-total_qi = 0
-
+# -------------------------------
+# CALCULATION & DISPLAY
+# -------------------------------
+plans = []
 for name, variants in db.items():
     for v in variants:
         possible = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
         amt = min(possible) if possible else 0
-        missing = [ing for ing, req in v["ingredients"].items() if inv.get(ing, 0) < req]
         
         if amt > 0:
             boost_per = v["qi"] * 3 if handcrafted else v["qi"]
-            total_qi += (boost_per * amt)
-            plans.append({"name": name, "tier": v["tier"], "amt": amt, "qi": boost_per, "spec": v.get("spec"), "ing": v["ingredients"]})
-        elif len(missing) == 1:
-            m_ing = missing[0]
-            discovery.append({"name": name, "tier": v["tier"], "m_name": m_ing, "m_qty": v["ingredients"][m_ing] - inv.get(m_ing, 0)})
+            plans.append({
+                "name": name, 
+                "tier": v["tier"], 
+                "amt": amt, 
+                "qi": boost_per, 
+                "spec": v.get("spec"), 
+                "ing": v["ingredients"]
+            })
 
-# -------------------------------
-# DISPLAY
-# -------------------------------
 st.title("Alchemy Dashboard")
-st.markdown("<p style='color:#8b949e;'>Cultivate with maximum efficiency</p>", unsafe_allow_html=True)
-
-m1, m2, m3 = st.columns(3)
-m1.metric("Stock", sum(inv.values()))
-m2.metric("Total Qi potential", f"+{total_qi}%")
-m3.metric("Mode", "Handcrafted" if handcrafted else "Standard")
 st.divider()
 
-col_main, col_side = st.columns([2, 1])
+if plans:
+    for p in sorted(plans, key=lambda x: x['qi'], reverse=True):
+        # Generate All Benefit Badges
+        benefit_badges = ""
+        if p['qi'] > 0:
+            benefit_badges += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi Boost</span>'
+        
+        # If the pill has multiple special effects (separated by / in your DB)
+        if p['spec']:
+            effects = p['spec'].split('/')
+            for effect in effects:
+                benefit_badges += f'<span class="benefit-tag spec-tag">✨ {effect.strip()}</span>'
 
-with col_main:
-    if plans:
-        for p in sorted(plans, key=lambda x: x['qi'], reverse=True):
-            # Benefit Tags
-            tags = ""
-            if p['qi'] > 0: tags += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi Boost</span>'
-            if p['spec']: tags += f'<span class="benefit-tag spec-tag">✨ {p["spec"]}</span>'
-            
-            # Badge & Total logic
-            badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
-            totals = "".join([f'<div style="min-width: 140px; font-size: 0.9rem;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
-            
-            # THE RENDER
-            html = f"""
-            <div class="app-card">
-                <div style="display: flex; justify-content: space-between;">
-                    <div>
-                        <div class="pill-tier">{p['tier']}</div>
-                        <div class="pill-title">{p['name']}</div>
-                        <div style="margin-top:5px;">{tags}</div>
-                    </div>
-                    <div style="text-align: right;">
-                        <div style="font-size: 0.7rem; color: #8b949e;">CRAFTABLE</div>
-                        <div style="font-size: 2.2rem; color: #58a6ff; font-weight: bold;">{p['amt']}</div>
-                    </div>
+        # Recipe & Totals
+        badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
+        totals = "".join([f'<div style="min-width: 140px; font-size: 0.9rem;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
+        
+        # Batch Gains Summary
+        batch_gains = ""
+        if p['qi'] > 0:
+            batch_gains += f'<p style="color:#3fb950; margin:0;">Total Batch Qi: <b>+{p["qi"] * p["amt"]}%</b></p>'
+        if p['spec']:
+            batch_gains += f'<p style="color:#d2a8ff; margin:0;">Total Batch Effects: <b>{p["amt"]}x {p["spec"]}</b></p>'
+
+        html = f"""
+        <div class="app-card">
+            <div style="display: flex; justify-content: space-between;">
+                <div>
+                    <div class="pill-tier">{p['tier']}</div>
+                    <div class="pill-title">{p['name']}</div>
+                    <div style="margin-top:5px;">{benefit_badges}</div>
                 </div>
-                <div style="margin-top:15px; font-size: 0.8rem; color:#8b949e; font-weight:bold;">RECIPE</div>
-                <div style="display: flex; flex-wrap: wrap;">{badges}</div>
-                <div class="total-box">
-                    <div style="font-size: 0.8rem; color:#58a6ff; font-weight:bold; margin-bottom:8px;">BATCH TOTALS</div>
-                    <div style="display: flex; flex-wrap: wrap; gap: 5px 15px;">{totals}</div>
+                <div style="text-align: right;">
+                    <div style="font-size: 0.7rem; color: #8b949e;">CRAFTABLE</div>
+                    <div style="font-size: 2.2rem; color: #58a6ff; font-weight: bold;">{p['amt']}</div>
                 </div>
             </div>
-            """
-            st.markdown(html, unsafe_allow_html=True)
-    else:
-        st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
-
-with col_side:
-    st.subheader("Near Ready")
-    for d in discovery[:5]:
-        st.markdown(f"""
-        <div class="discovery-card">
-            <div style="font-size: 0.7rem; color:#8b949e;">{d['tier']}</div>
-            <div style="font-weight:bold;">{d['name']}</div>
-            <div style="color:#ffab70; font-size:0.85rem;">Missing: {d['m_qty']}x {d['m_name'].title()}</div>
+            <div style="margin-top:15px; font-size: 0.8rem; color:#8b949e; font-weight:bold;">RECIPE</div>
+            <div style="display: flex; flex-wrap: wrap;">{badges}</div>
+            <div class="total-box">
+                <div style="font-size: 0.8rem; color:#58a6ff; font-weight:bold; margin-bottom:8px;">BATCH TOTALS</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 5px 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom:8px; margin-bottom:8px;">{totals}</div>
+                {batch_gains}
+            </div>
         </div>
-        """, unsafe_allow_html=True)
+        """
+        st.markdown(html, unsafe_allow_html=True)
+else:
+    st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
