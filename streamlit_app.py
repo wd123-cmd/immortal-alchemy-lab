@@ -1,29 +1,37 @@
 import streamlit as st
 
 # -------------------------------
-# APP CONFIG & THEME
+# APP CONFIG & NATIVE APP STYLING
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
+# Professional App Interface CSS
 st.markdown("""
     <style>
     .stApp { background: radial-gradient(circle at top right, #1a1f35, #0a0c10); }
     header {visibility: hidden;}
     footer {visibility: hidden;}
+    
+    /* Frosted Glass Card Design */
     .app-card {
         background: rgba(255, 255, 255, 0.03);
-        backdrop-filter: blur(10px);
+        backdrop-filter: blur(12px);
         border-radius: 20px;
-        padding: 22px;
+        padding: 24px;
         border: 1px solid rgba(255, 255, 255, 0.1);
         margin-bottom: 25px;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
     }
-    .pill-title { color: #58a6ff; font-size: 1.5rem; font-weight: 700; margin: 0; }
-    .pill-tier { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 4px; }
+    
+    /* Typography */
+    .pill-title { color: #58a6ff; font-size: 1.6rem; font-weight: 700; margin: 0; }
+    .pill-tier { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
     .pill-effect { color: #3fb950; font-weight: 500; font-size: 1.1rem; margin-top: 5px; }
+    
+    /* Ingredient Badges */
     .badge {
         display: inline-block;
-        background: rgba(88, 166, 255, 0.08);
+        background: rgba(88, 166, 255, 0.1);
         color: #58a6ff;
         padding: 6px 14px;
         border-radius: 8px;
@@ -32,18 +40,23 @@ st.markdown("""
         margin-top: 10px;
         border: 1px solid rgba(88, 166, 255, 0.2);
     }
+    
+    /* Calculation Result Box */
     .total-box {
         margin-top: 20px;
-        padding: 12px;
-        background: rgba(0, 0, 0, 0.2);
-        border-radius: 12px;
-        border: 1px dashed rgba(255, 255, 255, 0.1);
+        padding: 15px;
+        background: rgba(0, 0, 0, 0.25);
+        border-radius: 15px;
+        border: 1px dashed rgba(88, 166, 255, 0.3);
     }
+    
+    /* Sidebar Overrides */
+    .stNumberInput { border-radius: 10px !important; }
     </style>
     """, unsafe_allow_html=True)
 
 # -------------------------------
-# DATASET
+# VERIFIED MASTER DATASET
 # -------------------------------
 def get_db():
     return {
@@ -67,7 +80,8 @@ def get_db():
         ],
         "Dragon Pulse Pill": [
             {"tier": "Imperfect", "ingredients": {"blue wave coral herb": 2, "cloud mist herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 80},
-            {"tier": "Heavenly", "ingredients": {"blue wave coral herb": 2, "silverleaf herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 168}
+            {"tier": "Heavenly (V1)", "ingredients": {"blue wave coral herb": 2, "cloud mist herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 160},
+            {"tier": "Heavenly (V2)", "ingredients": {"blue wave coral herb": 2, "silverleaf herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 168}
         ],
         "Void Clarity Pill": [
             {"tier": "Standard", "ingredients": {"starlight dew herb": 2, "cloud mist herb": 2, "heavenly spirit vine": 1, "bitter jade grass": 1}, "qi": 170}
@@ -119,26 +133,37 @@ def get_db():
     }
 
 # -------------------------------
-# APP LOGIC
+# CORE LOGIC
 # -------------------------------
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
 
 with st.sidebar:
     st.markdown("<h1 style='color:#58a6ff;'>📦 Storage</h1>", unsafe_allow_html=True)
-    handcrafted = st.toggle("✨ Handcrafted (3x Effect)")
-    if st.button("🧹 Clear All"):
+    handcrafted = st.toggle("✨ Handcrafted Mode (3x Effect)")
+    if st.button("🧹 Clear All Inventory"):
         for h in all_herbs: st.session_state[f"i_{h}"] = 0
     st.divider()
-    search = st.text_input("🔍 Search herbs...", "")
-    inv = {h: st.number_input(h.title(), min_value=0, key=f"i_{h}") if search.lower() in h.lower() else st.session_state.get(f"i_{h}", 0) for h in all_herbs}
+    search = st.text_input("🔍 Filter Chest Items", "")
+    
+    # Inventory inputs with state persistence
+    inv = {}
+    for h in all_herbs:
+        if search.lower() in h.lower():
+            inv[h] = st.number_input(h.title(), min_value=0, key=f"i_{h}")
+        else:
+            inv[h] = st.session_state.get(f"i_{h}", 0)
 
-st.markdown("<h1 style='color:white;'>Alchemy Dashboard</h1>", unsafe_allow_html=True)
+# Main App View
+st.markdown("<h1 style='color:white; margin-bottom: 0;'>Alchemy Dashboard</h1>", unsafe_allow_html=True)
+st.markdown("<p style='color:#8b949e; margin-bottom: 20px;'>Maximize your cultivation efficiency</p>", unsafe_allow_html=True)
+
 m1, m2 = st.columns(2)
-m1.metric("Items in Stock", sum(inv.values()))
-m2.metric("Handcrafted Mode", "ON" if handcrafted else "OFF")
+m1.metric("Stockpile Items", sum(inv.values()))
+m2.metric("Alchemy Mode", "Handcrafted" if handcrafted else "Standard")
 st.divider()
 
+# Calculation Engine
 plans = []
 for name, variants in db.items():
     for v in variants:
@@ -147,25 +172,26 @@ for name, variants in db.items():
         if amt > 0:
             plans.append({"name": name, "tier": v["tier"], "amt": amt, "qi": v["qi"], "spec": v.get("spec"), "ing": v["ingredients"]})
 
+# Display Recipe Cards
 if plans:
     for p in sorted(plans, key=lambda x: x['qi'], reverse=True):
         val = p['qi'] * 3 if handcrafted else p['qi']
         effect_str = f"+{val}% Qi Boost" if val > 0 else p['spec']
         
-        # Build components
+        # Build HTML Components for clean rendering
         badges_html = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
-        totals_html = "".join([f'<div style="font-size: 0.9rem; color: white;">• {ing.title()}: <b>{req * p["amt"]}</b></div>' for ing, req in p["ing"].items()])
+        totals_html = "".join([f'<div style="font-size: 0.95rem; color: #f0f6fc; min-width: 150px;">• {ing.title()}: <b>{req * p["amt"]}</b></div>' for ing, req in p["ing"].items()])
         
-        # Define the full HTML card as a single clean string
+        # Final App Card
         card_html = f"""<div class="app-card">
 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
 <div><p class="pill-tier">{p['tier']}</p><p class="pill-title">{p['name']}</p><p class="pill-effect">✨ {effect_str}</p></div>
-<div style="text-align: right;"><p style="font-size: 0.8rem; color: #8b949e; margin:0;">CRAFTABLE</p><p style="font-size: 2.2rem; color: #58a6ff; font-weight: bold; margin:0;">{p['amt']}</p></div>
+<div style="text-align: right;"><p style="font-size: 0.8rem; color: #8b949e; margin:0;">CRAFTABLE</p><p style="font-size: 2.5rem; color: #58a6ff; font-weight: bold; margin:0;">{p['amt']}</p></div>
 </div>
-<div style="margin-top: 15px;"><p style="font-size: 0.75rem; color: #8b949e; margin-bottom: 5px;">BASE RECIPE (PER PILL)</p><div style="display: flex; flex-wrap: wrap;">{badges_html}</div></div>
-<div class="total-box"><p style="font-size: 0.75rem; color: #58a6ff; margin-bottom: 8px; font-weight: bold; letter-spacing: 1px;">TOTAL MATERIALS FOR {p['amt']}x CRAFT</p><div style="display: flex; flex-wrap: wrap; gap: 15px;">{totals_html}</div></div>
+<div style="margin-top: 18px;"><p style="font-size: 0.75rem; color: #8b949e; margin-bottom: 5px; font-weight: bold;">BASE RECIPE (PER CRAFT)</p><div style="display: flex; flex-wrap: wrap;">{badges_html}</div></div>
+<div class="total-box"><p style="font-size: 0.8rem; color: #58a6ff; margin-bottom: 10px; font-weight: bold; letter-spacing: 1.2px;">TOTAL REQUIRED FOR {p['amt']}x BATCH</p><div style="display: flex; flex-wrap: wrap; gap: 10px 20px;">{totals_html}</div></div>
 </div>"""
         
         st.markdown(card_html, unsafe_allow_html=True)
 else:
-    st.markdown("<div style='text-align: center; opacity: 0.5; padding: 50px;'><p style='font-size: 4rem;'>🥣</p><p>Add ingredients to begin brewing.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; opacity: 0.4; padding: 100px;'><p style='font-size: 5rem;'>🥣</p><p style='font-size: 1.2rem;'>Cauldron Empty. Add ingredients to begin alchemy.</p></div>", unsafe_allow_html=True)
