@@ -43,6 +43,7 @@ st.markdown("""
     }
     .qi-tag { background: rgba(63, 185, 80, 0.15); color: #3fb950; border: 1px solid rgba(63, 185, 80, 0.3); }
     .spec-tag { background: rgba(187, 128, 255, 0.15); color: #d2a8ff; border: 1px solid rgba(187, 128, 255, 0.3); }
+    .dur-tag { background: rgba(255, 255, 255, 0.1); color: #f0f6fc; border: 1px solid rgba(255, 255, 255, 0.2); }
     
     .badge {
         display: inline-block;
@@ -67,7 +68,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # -------------------------------
-# VERIFIED MASTER DATASET
+# DATASET
 # -------------------------------
 def get_db():
     return {
@@ -144,7 +145,7 @@ def get_db():
     }
 
 # -------------------------------
-# INVENTORY LOGIC
+# CORE INVENTORY LOGIC
 # -------------------------------
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
@@ -156,24 +157,21 @@ with st.sidebar:
         for h in all_herbs: st.session_state[f"i_{h}"] = 0
         st.rerun()
     st.divider()
-    search = st.text_input("🔍 Filter Herbs", "")
+    herb_search = st.text_input("🔍 Search Storage Herbs", "")
     inv = {}
     for h in all_herbs:
         val = st.session_state.get(f"i_{h}", 0)
-        if search.lower() in h.lower():
+        if herb_search.lower() in h.lower():
             inv[h] = st.number_input(h.title(), min_value=0, value=val, key=f"i_{h}")
         else:
             inv[h] = val
 
-# -------------------------------
-# CALCULATION & DISPLAY
-# -------------------------------
+# Calculation Engine
 plans = []
 for name, variants in db.items():
     for v in variants:
         possible = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
         amt = min(possible) if possible else 0
-        
         if amt > 0:
             boost_per = v["qi"] * 3 if handcrafted else v["qi"]
             plans.append({
@@ -185,55 +183,63 @@ for name, variants in db.items():
                 "ing": v["ingredients"]
             })
 
+# -------------------------------
+# MAIN DASHBOARD UI
+# -------------------------------
 st.title("Alchemy Dashboard")
-st.divider()
 
+# MAIN DASHBOARD PILL SEARCH
 if plans:
-    for p in sorted(plans, key=lambda x: x['qi'], reverse=True):
-        # Generate All Benefit Badges
-        benefit_badges = ""
-        if p['qi'] > 0:
-            benefit_badges += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi Boost</span>'
-        
-        # If the pill has multiple special effects (separated by / in your DB)
-        if p['spec']:
-            effects = p['spec'].split('/')
-            for effect in effects:
-                benefit_badges += f'<span class="benefit-tag spec-tag">✨ {effect.strip()}</span>'
+    search_col1, search_col2 = st.columns([2, 1])
+    with search_col1:
+        pill_search = st.text_input("🔍 Search Craftable Pills", "", placeholder="e.g. Dragon, Heavenly, Vitality...")
+    
+    # Filter the plans based on pill search
+    filtered_plans = [p for p in plans if pill_search.lower() in p['name'].lower() or pill_search.lower() in p['tier'].lower() or (p['spec'] and pill_search.lower() in p['spec'].lower())]
+    
+    if filtered_plans:
+        for p in sorted(filtered_plans, key=lambda x: x['qi'], reverse=True):
+            # Duration Detection
+            is_permanent = any(word in (p['spec'] or "").lower() for word in ["perm", "lifespan", "nirvana"])
+            duration_label = "⏳ Permanent" if is_permanent else "⏱️ Temporary"
+            
+            # Benefit Badges
+            benefit_badges = f'<span class="benefit-tag dur-tag">{duration_label}</span>'
+            if p['qi'] > 0: benefit_badges += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi Boost</span>'
+            if p['spec']:
+                for effect in p['spec'].split('/'):
+                    benefit_badges += f'<span class="benefit-tag spec-tag">✨ {effect.strip()}</span>'
 
-        # Recipe & Totals
-        badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
-        totals = "".join([f'<div style="min-width: 140px; font-size: 0.9rem;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
-        
-        # Batch Gains Summary
-        batch_gains = ""
-        if p['qi'] > 0:
-            batch_gains += f'<p style="color:#3fb950; margin:0;">Total Batch Qi: <b>+{p["qi"] * p["amt"]}%</b></p>'
-        if p['spec']:
-            batch_gains += f'<p style="color:#d2a8ff; margin:0;">Total Batch Effects: <b>{p["amt"]}x {p["spec"]}</b></p>'
-
-        html = f"""
-        <div class="app-card">
-            <div style="display: flex; justify-content: space-between;">
-                <div>
-                    <div class="pill-tier">{p['tier']}</div>
-                    <div class="pill-title">{p['name']}</div>
-                    <div style="margin-top:5px;">{benefit_badges}</div>
+            # Recipe & Summary
+            badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
+            totals = "".join([f'<div style="min-width: 140px; font-size: 0.9rem;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
+            
+            html = f"""
+            <div class="app-card">
+                <div style="display: flex; justify-content: space-between;">
+                    <div>
+                        <div class="pill-tier">{p['tier']}</div>
+                        <div class="pill-title">{p['name']}</div>
+                        <div style="margin-top:5px;">{benefit_badges}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 0.7rem; color: #8b949e;">CRAFTABLE</div>
+                        <div style="font-size: 2.2rem; color: #58a6ff; font-weight: bold;">{p['amt']}</div>
+                    </div>
                 </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 0.7rem; color: #8b949e;">CRAFTABLE</div>
-                    <div style="font-size: 2.2rem; color: #58a6ff; font-weight: bold;">{p['amt']}</div>
+                <div style="margin-top:15px; font-size: 0.8rem; color:#8b949e; font-weight:bold;">RECIPE</div>
+                <div style="display: flex; flex-wrap: wrap;">{badges}</div>
+                <div class="total-box">
+                    <div style="font-size: 0.8rem; color:#58a6ff; font-weight:bold; margin-bottom:8px;">BATCH TOTALS</div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 5px 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom:8px; margin-bottom:8px;">{totals}</div>
+                    <p style="color:#f0f6fc; margin:0; font-size: 0.85rem;">Batch Duration: <b>{duration_label}</b></p>
+                    <p style="color:#3fb950; margin:0; font-size: 0.85rem;">Batch Power: <b>+{p['qi'] * p['amt']}% Qi Potential</b></p>
                 </div>
             </div>
-            <div style="margin-top:15px; font-size: 0.8rem; color:#8b949e; font-weight:bold;">RECIPE</div>
-            <div style="display: flex; flex-wrap: wrap;">{badges}</div>
-            <div class="total-box">
-                <div style="font-size: 0.8rem; color:#58a6ff; font-weight:bold; margin-bottom:8px;">BATCH TOTALS</div>
-                <div style="display: flex; flex-wrap: wrap; gap: 5px 15px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom:8px; margin-bottom:8px;">{totals}</div>
-                {batch_gains}
-            </div>
-        </div>
-        """
-        st.markdown(html, unsafe_allow_html=True)
+            """
+            st.markdown(html, unsafe_allow_html=True)
+    else:
+        st.info("No craftable pills match your search criteria.")
 else:
     st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
+    st.info("Storage is empty. Add herbs in the sidebar to reveal craftable pills.")
