@@ -1,7 +1,7 @@
 import streamlit as st
 
 # -------------------------------
-# APP CONFIG & MOBILE-OPTIMIZED STYLING
+# APP CONFIG & MOBILE-FORCED STYLING
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
@@ -12,71 +12,73 @@ st.markdown("""
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Center the main header and search for Mobile */
-    .main-header {
-        text-align: center;
-        color: white;
-        padding-top: 10px;
+    /* Force Centering and Mobile Spacing */
+    .main-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 100%;
     }
     
-    /* App Card Styling */
-    .app-card {
-        background: rgba(255, 255, 255, 0.03);
-        backdrop-filter: blur(12px);
-        border-radius: 15px;
-        padding: 18px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        margin-bottom: 20px;
+    .centered-title {
+        text-align: center;
         color: white;
+        width: 100%;
+        margin-top: 10px;
     }
 
-    /* Mobile Text Adjustments */
-    @media (max-width: 768px) {
-        .pill-title { font-size: 1.2rem !important; }
-        .pill-tier { font-size: 0.65rem !important; }
-        .benefit-tag { font-size: 0.7rem !important; padding: 2px 6px !important; }
-        .badge { font-size: 0.7rem !important; padding: 3px 8px !important; }
-        [data-testid="stMetricValue"] { font-size: 1.4rem !important; text-align: center !important; }
-        [data-testid="stMetricLabel"] { text-align: center !important; width: 100%; }
+    /* Visual Card Styling - NO INDENTATION in f-strings to prevent 'code block' look */
+    .app-card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(15px);
+        border-radius: 15px;
+        padding: 15px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        margin-bottom: 15px;
+        color: white;
+        width: 100%;
     }
 
-    .pill-title { color: #58a6ff; font-size: 1.5rem; font-weight: 700; margin: 0; }
-    .pill-tier { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; }
+    /* Tag and Badge styles */
+    .pill-title { color: #58a6ff; font-size: 1.3rem; font-weight: bold; margin: 0; }
+    .pill-tier { color: #8b949e; font-size: 0.7rem; text-transform: uppercase; margin-bottom: 4px; }
     
     .benefit-tag {
         display: inline-block;
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-size: 0.85rem;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
         font-weight: 600;
-        margin-right: 5px;
-        margin-top: 5px;
+        margin-right: 4px;
+        margin-top: 4px;
     }
-    .qi-tag { background: rgba(63, 185, 80, 0.15); color: #3fb950; border: 1px solid rgba(63, 185, 80, 0.3); }
-    .spec-tag { background: rgba(187, 128, 255, 0.15); color: #d2a8ff; border: 1px solid rgba(187, 128, 255, 0.3); }
-    .dur-tag { background: rgba(255, 255, 255, 0.1); color: #f0f6fc; border: 1px solid rgba(255, 255, 255, 0.2); }
+    .qi-tag { background: rgba(63, 185, 80, 0.2); color: #3fb950; border: 1px solid rgba(63, 185, 80, 0.3); }
+    .spec-tag { background: rgba(187, 128, 255, 0.2); color: #d2a8ff; border: 1px solid rgba(187, 128, 255, 0.3); }
+    .dur-tag { background: rgba(255, 255, 255, 0.1); color: #f0f6fc; }
     
     .badge {
         display: inline-block;
         background: rgba(88, 166, 255, 0.1);
         color: #58a6ff;
-        padding: 5px 12px;
-        border-radius: 8px;
-        font-size: 0.8rem;
-        margin-right: 6px;
-        margin-top: 6px;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        margin-right: 5px;
+        margin-top: 5px;
         border: 1px solid rgba(88, 166, 255, 0.2);
     }
     
     .total-box {
-        margin-top: 15px;
-        padding: 12px;
-        background: rgba(0, 0, 0, 0.25);
-        border-radius: 12px;
-        border: 1px dashed rgba(88, 166, 255, 0.3);
+        margin-top: 12px;
+        padding: 10px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 10px;
+        border: 1px dashed rgba(88, 166, 255, 0.2);
     }
-    
-    .floating-cauldron { font-size: 4rem; text-align: center; margin-top: 40px; opacity: 0.5;}
+
+    /* Fixed Metrics for Mobile */
+    [data-testid="stMetricValue"] { font-size: 1.5rem !important; text-align: center !important; }
+    [data-testid="stMetricLabel"] { text-align: center !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -106,7 +108,7 @@ def get_db():
     }
 
 # -------------------------------
-# INVENTORY LOGIC
+# INVENTORY
 # -------------------------------
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
@@ -121,12 +123,12 @@ with st.sidebar:
     inv = {h: st.number_input(h.title(), min_value=0, key=f"i_{h}") if herb_filter.lower() in h.lower() else st.session_state.get(f"i_{h}", 0) for h in all_herbs}
 
 # -------------------------------
-# MAIN DASHBOARD (Centered for Mobile)
+# DASHBOARD
 # -------------------------------
-st.markdown("<div class='main-header'><h1>Alchemy Dashboard</h1></div>", unsafe_allow_html=True)
-pill_query = st.text_input("🔍 Live Search Recipes...", key="pill_search", placeholder="Pill name or effect...").lower()
+st.markdown("<div class='centered-title'><h1>Alchemy Dashboard</h1></div>", unsafe_allow_html=True)
+pill_query = st.text_input("🔍 Live Search Recipes...", placeholder="Pill name or effect...").lower()
 
-# Calculation
+# Calc logic
 craftable = []
 for name, variants in db.items():
     for v in variants:
@@ -137,11 +139,10 @@ for name, variants in db.items():
             if not pill_query or pill_query in name.lower() or pill_query in v.get('spec', '').lower() or pill_query in v['tier'].lower():
                 craftable.append({"name": name, "tier": v["tier"], "amt": amt, "qi": qi_val, "spec": v.get("spec"), "ing": v["ingredients"]})
 
-# Items metric (Total Qi removed)
-col_metric = st.columns(1)
-col_metric[0].metric("Total Ingredients in Stock", sum(inv.values()))
+# Stockpile Metric Only
+st.metric("Total Items in Stock", sum(inv.values()))
 
-# Card Display
+# Main Display Area
 if craftable:
     for p in sorted(craftable, key=lambda x: x['qi'], reverse=True):
         is_perm = any(w in (p['spec'] or "").lower() for w in ["perm", "lifespan", "nirvana"])
@@ -153,28 +154,20 @@ if craftable:
             for s in p['spec'].split('/'): tags += f'<span class="benefit-tag spec-tag">{s.strip()}</span>'
 
         badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
-        totals = "".join([f'<div style="min-width: 120px; font-size: 0.85rem;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
+        totals = "".join([f'<div style="font-size: 0.8rem; margin-bottom: 2px;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
         
-        st.markdown(f"""
-        <div class="app-card">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <div class="pill-tier">{p['tier']}</div>
-                    <div class="pill-title">{p['name']}</div>
-                    {tags}
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 0.7rem; color: #8b949e;">QTY</div>
-                    <div style="font-size: 2rem; color: #58a6ff; font-weight: bold;">{p['amt']}</div>
-                </div>
-            </div>
-            <div style="margin-top:15px;">{badges}</div>
-            <div class="total-box">
-                <div style="font-size: 0.75rem; color:#58a6ff; font-weight:bold; margin-bottom:5px;">BATCH SUMMARY ({p['amt']}x)</div>
-                <div style="display: flex; flex-wrap: wrap; gap: 5px 15px;">{totals}</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        # HTML Cards - MINIMIZED indent to prevent Streamlit interpreting as code blocks
+        card_html = f"""<div class="app-card">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<div><div class="pill-tier">{p['tier']}</div><div class="pill-title">{p['name']}</div>{tags}</div>
+<div style="text-align: right;"><div style="font-size: 0.6rem; color: #8b949e;">QTY</div><div style="font-size: 2rem; color: #58a6ff; font-weight: bold;">{p['amt']}</div></div>
+</div>
+<div style="margin-top:10px;">{badges}</div>
+<div class="total-box">
+<div style="font-size: 0.75rem; color:#58a6ff; font-weight:bold; margin-bottom:4px;">BATCH ({p['amt']}x)</div>
+{totals}
+</div>
+</div>"""
+        st.markdown(card_html, unsafe_allow_html=True)
 else:
     st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align:center; opacity:0.6;'>Your cauldron is empty. Add herbs in the storage menu to begin.</p>", unsafe_allow_html=True)
