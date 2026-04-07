@@ -1,18 +1,25 @@
 import streamlit as st
 
 # -------------------------------
-# APP CONFIG & MOBILE-RESPONSIVE STYLING
+# APP CONFIG & MOBILE-OPTIMIZED STYLING
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
 st.markdown("""
     <style>
-    /* Global Styles */
+    /* Global Background */
     .stApp { background: radial-gradient(circle at top right, #1a1f35, #0a0c10); }
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Responsive Container */
+    /* Center the main header and search for Mobile */
+    .main-header {
+        text-align: center;
+        color: white;
+        padding-top: 10px;
+    }
+    
+    /* App Card Styling */
     .app-card {
         background: rgba(255, 255, 255, 0.03);
         backdrop-filter: blur(12px);
@@ -23,25 +30,24 @@ st.markdown("""
         color: white;
     }
 
-    /* Mobile Specific Overrides */
+    /* Mobile Text Adjustments */
     @media (max-width: 768px) {
-        .pill-title { font-size: 1.3rem !important; }
-        .pill-tier { font-size: 0.7rem !important; }
-        .benefit-tag { font-size: 0.75rem !important; padding: 3px 8px !important; }
-        .badge { font-size: 0.75rem !important; padding: 4px 10px !important; }
-        .total-box { padding: 10px !important; }
-        /* Make metrics smaller on mobile */
-        [data-testid="stMetricValue"] { font-size: 1.5rem !important; }
+        .pill-title { font-size: 1.2rem !important; }
+        .pill-tier { font-size: 0.65rem !important; }
+        .benefit-tag { font-size: 0.7rem !important; padding: 2px 6px !important; }
+        .badge { font-size: 0.7rem !important; padding: 3px 8px !important; }
+        [data-testid="stMetricValue"] { font-size: 1.4rem !important; text-align: center !important; }
+        [data-testid="stMetricLabel"] { text-align: center !important; width: 100%; }
     }
 
-    .pill-title { color: #58a6ff; font-size: 1.6rem; font-weight: 700; margin: 0; }
+    .pill-title { color: #58a6ff; font-size: 1.5rem; font-weight: 700; margin: 0; }
     .pill-tier { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; }
     
     .benefit-tag {
         display: inline-block;
-        padding: 4px 12px;
+        padding: 4px 10px;
         border-radius: 6px;
-        font-size: 0.9rem;
+        font-size: 0.85rem;
         font-weight: 600;
         margin-right: 5px;
         margin-top: 5px;
@@ -54,11 +60,11 @@ st.markdown("""
         display: inline-block;
         background: rgba(88, 166, 255, 0.1);
         color: #58a6ff;
-        padding: 6px 14px;
+        padding: 5px 12px;
         border-radius: 8px;
-        font-size: 0.85rem;
-        margin-right: 8px;
-        margin-top: 8px;
+        font-size: 0.8rem;
+        margin-right: 6px;
+        margin-top: 6px;
         border: 1px solid rgba(88, 166, 255, 0.2);
     }
     
@@ -70,7 +76,7 @@ st.markdown("""
         border: 1px dashed rgba(88, 166, 255, 0.3);
     }
     
-    .floating-cauldron { font-size: 4rem; text-align: center; margin-top: 30px; opacity: 0.5;}
+    .floating-cauldron { font-size: 4rem; text-align: center; margin-top: 40px; opacity: 0.5;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -115,9 +121,9 @@ with st.sidebar:
     inv = {h: st.number_input(h.title(), min_value=0, key=f"i_{h}") if herb_filter.lower() in h.lower() else st.session_state.get(f"i_{h}", 0) for h in all_herbs}
 
 # -------------------------------
-# MAIN DASHBOARD
+# MAIN DASHBOARD (Centered for Mobile)
 # -------------------------------
-st.title("Alchemy Dashboard")
+st.markdown("<div class='main-header'><h1>Alchemy Dashboard</h1></div>", unsafe_allow_html=True)
 pill_query = st.text_input("🔍 Live Search Recipes...", key="pill_search", placeholder="Pill name or effect...").lower()
 
 # Calculation
@@ -131,10 +137,9 @@ for name, variants in db.items():
             if not pill_query or pill_query in name.lower() or pill_query in v.get('spec', '').lower() or pill_query in v['tier'].lower():
                 craftable.append({"name": name, "tier": v["tier"], "amt": amt, "qi": qi_val, "spec": v.get("spec"), "ing": v["ingredients"]})
 
-# Metrics Row
-m1, m2 = st.columns(2)
-m1.metric("Items", sum(inv.values()))
-m2.metric("Total Qi", f"+{sum(p['qi']*p['amt'] for p in craftable)}%")
+# Items metric (Total Qi removed)
+col_metric = st.columns(1)
+col_metric[0].metric("Total Ingredients in Stock", sum(inv.values()))
 
 # Card Display
 if craftable:
@@ -165,10 +170,11 @@ if craftable:
             </div>
             <div style="margin-top:15px;">{badges}</div>
             <div class="total-box">
-                <div style="font-size: 0.75rem; color:#58a6ff; font-weight:bold; margin-bottom:5px;">BATCH ({p['amt']}x)</div>
+                <div style="font-size: 0.75rem; color:#58a6ff; font-weight:bold; margin-bottom:5px;">BATCH SUMMARY ({p['amt']}x)</div>
                 <div style="display: flex; flex-wrap: wrap; gap: 5px 15px;">{totals}</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 else:
     st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align:center; opacity:0.6;'>Your cauldron is empty. Add herbs in the storage menu to begin.</p>", unsafe_allow_html=True)
