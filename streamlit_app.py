@@ -1,33 +1,32 @@
 import streamlit as st
 
 # -------------------------------
-# APP CONFIG & MOBILE-FORCED STYLING
+# APP CONFIG & MOBILE-FLUID STYLING
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
 st.markdown("""
     <style>
-    /* Global Background */
     .stApp { background: radial-gradient(circle at top right, #1a1f35, #0a0c10); }
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Force Centering and Mobile Spacing */
-    .main-container {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        width: 100%;
+    /* Style Tabs to look like a Menu */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+        justify-content: center;
     }
-    
-    .centered-title {
-        text-align: center;
+    .stTabs [data-baseweb="tab"] {
+        background-color: rgba(255, 255, 255, 0.05);
+        border-radius: 10px 10px 0 0;
+        padding: 10px 20px;
         color: white;
-        width: 100%;
-        margin-top: 10px;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: rgba(88, 166, 255, 0.2) !important;
+        border-bottom: 2px solid #58a6ff !important;
     }
 
-    /* Visual Card Styling - NO INDENTATION in f-strings to prevent 'code block' look */
     .app-card {
         background: rgba(255, 255, 255, 0.05);
         backdrop-filter: blur(15px);
@@ -36,10 +35,8 @@ st.markdown("""
         border: 1px solid rgba(255, 255, 255, 0.1);
         margin-bottom: 15px;
         color: white;
-        width: 100%;
     }
 
-    /* Tag and Badge styles */
     .pill-title { color: #58a6ff; font-size: 1.3rem; font-weight: bold; margin: 0; }
     .pill-tier { color: #8b949e; font-size: 0.7rem; text-transform: uppercase; margin-bottom: 4px; }
     
@@ -75,10 +72,8 @@ st.markdown("""
         border-radius: 10px;
         border: 1px dashed rgba(88, 166, 255, 0.2);
     }
-
-    /* Fixed Metrics for Mobile */
-    [data-testid="stMetricValue"] { font-size: 1.5rem !important; text-align: center !important; }
-    [data-testid="stMetricLabel"] { text-align: center !important; }
+    
+    .floating-cauldron { font-size: 4rem; text-align: center; margin-top: 40px; opacity: 0.5;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -107,60 +102,69 @@ def get_db():
         "Soul Replenishing": [{"tier": "Heavenly", "ingredients": {"healing sunflower": 2, "red ginseng": 1, "ironbone grass": 2, "seven star flower": 1}, "qi": 0, "spec": "12% Lifespan (Perm)"}]
     }
 
-# -------------------------------
-# INVENTORY
-# -------------------------------
+# Initialize state
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
-
-with st.sidebar:
-    st.markdown("<h1 style='color:#58a6ff;'>📦 Storage</h1>", unsafe_allow_html=True)
-    handcrafted = st.toggle("✨ Handcrafted (3x)")
-    if st.button("🧹 Clear Inventory"):
-        for h in all_herbs: st.session_state[f"i_{h}"] = 0
-        st.rerun()
-    herb_filter = st.text_input("🔍 Filter Herbs", "")
-    inv = {h: st.number_input(h.title(), min_value=0, key=f"i_{h}") if herb_filter.lower() in h.lower() else st.session_state.get(f"i_{h}", 0) for h in all_herbs}
+for h in all_herbs:
+    if f"i_{h}" not in st.session_state: st.session_state[f"i_{h}"] = 0
 
 # -------------------------------
-# DASHBOARD
+# MENU TABS
 # -------------------------------
-st.markdown("<div class='centered-title'><h1>Alchemy Dashboard</h1></div>", unsafe_allow_html=True)
-pill_query = st.text_input("🔍 Live Search Recipes...", placeholder="Pill name or effect...").lower()
+tab1, tab2 = st.tabs(["🥣 Lab Dashboard", "🎒 Ingredients"])
 
-# Calc logic
-craftable = []
-for name, variants in db.items():
-    for v in variants:
-        possible = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
-        amt = min(possible) if possible else 0
-        if amt > 0:
-            qi_val = v["qi"] * 3 if handcrafted else v["qi"]
-            if not pill_query or pill_query in name.lower() or pill_query in v.get('spec', '').lower() or pill_query in v['tier'].lower():
-                craftable.append({"name": name, "tier": v["tier"], "amt": amt, "qi": qi_val, "spec": v.get("spec"), "ing": v["ingredients"]})
+with tab2:
+    st.subheader("Inventory Management")
+    col_set1, col_set2 = st.columns(2)
+    with col_set1:
+        if st.button("🧹 Reset All to 0"):
+            for h in all_herbs: st.session_state[f"i_{h}"] = 0
+            st.rerun()
+    with col_set2:
+        handcrafted = st.toggle("✨ Handcrafted (3x)", value=False)
+    
+    herb_search = st.text_input("🔍 Search Ingredients...", placeholder="Type herb name...").lower()
+    
+    # Show inputs in a clean grid
+    grid_cols = st.columns(2)
+    for i, herb in enumerate([h for h in all_herbs if herb_search in h]):
+        with grid_cols[i % 2]:
+            st.number_input(herb.title(), min_value=0, key=f"i_{herb}")
 
-# Stockpile Metric Only
-st.metric("Total Items in Stock", sum(inv.values()))
+with tab1:
+    st.subheader("Craftable Recipes")
+    pill_query = st.text_input("🔍 Live Search Pills...", placeholder="Search by name or effect...").lower()
+    
+    inv = {h: st.session_state[f"i_{h}"] for h in all_herbs}
+    
+    # Calculation
+    craftable = []
+    for name, variants in db.items():
+        for v in variants:
+            possible = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
+            amt = min(possible) if possible else 0
+            if amt > 0:
+                qi_val = v["qi"] * 3 if handcrafted else v["qi"]
+                if not pill_query or pill_query in name.lower() or pill_query in v.get('spec', '').lower() or pill_query in v['tier'].lower():
+                    craftable.append({"name": name, "tier": v["tier"], "amt": amt, "qi": qi_val, "spec": v.get("spec"), "ing": v["ingredients"]})
 
-# Main Display Area
-if craftable:
-    for p in sorted(craftable, key=lambda x: x['qi'], reverse=True):
-        is_perm = any(w in (p['spec'] or "").lower() for w in ["perm", "lifespan", "nirvana"])
-        dur = "Permanent" if is_perm else "Temporary"
-        
-        tags = f'<span class="benefit-tag dur-tag">{dur}</span>'
-        if p['qi'] > 0: tags += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi</span>'
-        if p['spec']:
-            for s in p['spec'].split('/'): tags += f'<span class="benefit-tag spec-tag">{s.strip()}</span>'
+    if craftable:
+        for p in sorted(craftable, key=lambda x: x['qi'], reverse=True):
+            is_perm = any(w in (p['spec'] or "").lower() for w in ["perm", "lifespan", "nirvana"])
+            dur = "Permanent" if is_perm else "Temporary"
+            
+            tags = f'<span class="benefit-tag dur-tag">{dur}</span>'
+            if p['qi'] > 0: tags += f'<span class="benefit-tag qi-tag">+{p["qi"]}% Qi</span>'
+            if p['spec']:
+                for s in p['spec'].split('/'): tags += f'<span class="benefit-tag spec-tag">{s.strip()}</span>'
 
-        badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
-        totals = "".join([f'<div style="font-size: 0.8rem; margin-bottom: 2px;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
-        
-        # HTML Cards - MINIMIZED indent to prevent Streamlit interpreting as code blocks
-        card_html = f"""<div class="app-card">
+            badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
+            totals = "".join([f'<div style="font-size: 0.8rem; margin-bottom: 2px;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
+            
+            card_html = f"""<div class="app-card">
 <div style="display: flex; justify-content: space-between; align-items: center;">
 <div><div class="pill-tier">{p['tier']}</div><div class="pill-title">{p['name']}</div>{tags}</div>
-<div style="text-align: right;"><div style="font-size: 0.6rem; color: #8b949e;">QTY</div><div style="font-size: 2rem; color: #58a6ff; font-weight: bold;">{p['amt']}</div></div>
+<div style="text-align: right;"><div style="font-size: 0.6rem; color: #8b949e;">QTY</div><div style="font-size: 1.8rem; color: #58a6ff; font-weight: bold;">{p['amt']}</div></div>
 </div>
 <div style="margin-top:10px;">{badges}</div>
 <div class="total-box">
@@ -168,6 +172,7 @@ if craftable:
 {totals}
 </div>
 </div>"""
-        st.markdown(card_html, unsafe_allow_html=True)
-else:
-    st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
+            st.markdown(card_html, unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='floating-cauldron'>🥣</div>", unsafe_allow_html=True)
+        st.info("No craftable recipes. Update your ingredients in the tab above.")
