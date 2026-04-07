@@ -5,14 +5,20 @@ import streamlit as st
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
-# Professional App Interface CSS
 st.markdown("""
     <style>
     .stApp { background: radial-gradient(circle at top right, #1a1f35, #0a0c10); }
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Frosted Glass Card Design */
+    /* Animations */
+    @keyframes float {
+        0% { transform: translateY(0px); }
+        50% { transform: translateY(-15px); }
+        100% { transform: translateY(0px); }
+    }
+    .floating-cauldron { animation: float 3s ease-in-out infinite; font-size: 5rem; text-align: center; }
+
     .app-card {
         background: rgba(255, 255, 255, 0.03);
         backdrop-filter: blur(12px);
@@ -23,12 +29,10 @@ st.markdown("""
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
     }
     
-    /* Typography */
     .pill-title { color: #58a6ff; font-size: 1.6rem; font-weight: 700; margin: 0; }
     .pill-tier { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
     .pill-effect { color: #3fb950; font-weight: 500; font-size: 1.1rem; margin-top: 5px; }
     
-    /* Ingredient Badges */
     .badge {
         display: inline-block;
         background: rgba(88, 166, 255, 0.1);
@@ -41,7 +45,6 @@ st.markdown("""
         border: 1px solid rgba(88, 166, 255, 0.2);
     }
     
-    /* Calculation Result Box */
     .total-box {
         margin-top: 20px;
         padding: 15px;
@@ -49,9 +52,14 @@ st.markdown("""
         border-radius: 15px;
         border: 1px dashed rgba(88, 166, 255, 0.3);
     }
-    
-    /* Sidebar Overrides */
-    .stNumberInput { border-radius: 10px !important; }
+
+    .discovery-card {
+        background: rgba(255, 171, 112, 0.05);
+        border: 1px solid rgba(255, 171, 112, 0.2);
+        padding: 15px;
+        border-radius: 15px;
+        margin-bottom: 10px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -140,58 +148,91 @@ all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in
 
 with st.sidebar:
     st.markdown("<h1 style='color:#58a6ff;'>📦 Storage</h1>", unsafe_allow_html=True)
-    handcrafted = st.toggle("✨ Handcrafted Mode (3x Effect)")
+    handcrafted = st.toggle("✨ Handcrafted (3x Effect)")
+    
     if st.button("🧹 Clear All Inventory"):
         for h in all_herbs: st.session_state[f"i_{h}"] = 0
+        st.rerun()
+        
     st.divider()
     search = st.text_input("🔍 Filter Chest Items", "")
     
-    # Inventory inputs with state persistence
     inv = {}
     for h in all_herbs:
+        val = st.session_state.get(f"i_{h}", 0)
         if search.lower() in h.lower():
-            inv[h] = st.number_input(h.title(), min_value=0, key=f"i_{h}")
+            inv[h] = st.number_input(h.title(), min_value=0, value=val, key=f"i_{h}")
         else:
-            inv[h] = st.session_state.get(f"i_{h}", 0)
+            inv[h] = val
 
-# Main App View
+# -------------------------------
+# CALCULATION ENGINE
+# -------------------------------
+plans = []
+discovery = []
+total_qi_potential = 0
+
+for name, variants in db.items():
+    for v in variants:
+        # Check craftability
+        possible_crafts = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
+        amt = min(possible_crafts) if possible_crafts else 0
+        
+        # Discovery: Missing only 1 ingredient type?
+        missing = []
+        for ing, req in v["ingredients"].items():
+            if inv.get(ing, 0) < req:
+                missing.append({"name": ing, "needed": req - inv.get(ing, 0)})
+        
+        if amt > 0:
+            boost = v["qi"] * 3 if handcrafted else v["qi"]
+            total_qi_potential += (boost * amt)
+            plans.append({"name": name, "tier": v["tier"], "amt": amt, "qi": v["qi"], "spec": v.get("spec"), "ing": v["ingredients"]})
+        elif len(missing) == 1:
+            discovery.append({"name": name, "tier": v["tier"], "missing": missing[0]})
+
+# -------------------------------
+# UI LAYOUT
+# -------------------------------
 st.markdown("<h1 style='color:white; margin-bottom: 0;'>Alchemy Dashboard</h1>", unsafe_allow_html=True)
 st.markdown("<p style='color:#8b949e; margin-bottom: 20px;'>Maximize your cultivation efficiency</p>", unsafe_allow_html=True)
 
-m1, m2 = st.columns(2)
+m1, m2, m3 = st.columns(3)
 m1.metric("Stockpile Items", sum(inv.values()))
-m2.metric("Alchemy Mode", "Handcrafted" if handcrafted else "Standard")
+m2.metric("Total Qi Potential", f"+{total_qi_potential}%")
+m3.metric("Mode", "Handcrafted" if handcrafted else "Standard")
 st.divider()
 
-# Calculation Engine
-plans = []
-for name, variants in db.items():
-    for v in variants:
-        possible_crafts = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
-        amt = min(possible_crafts) if possible_crafts else 0
-        if amt > 0:
-            plans.append({"name": name, "tier": v["tier"], "amt": amt, "qi": v["qi"], "spec": v.get("spec"), "ing": v["ingredients"]})
+# Left Column: Craftable | Right Column: Discovery
+col_main, col_side = st.columns([2, 1])
 
-# Display Recipe Cards
-if plans:
-    for p in sorted(plans, key=lambda x: x['qi'], reverse=True):
-        val = p['qi'] * 3 if handcrafted else p['qi']
-        effect_str = f"+{val}% Qi Boost" if val > 0 else p['spec']
-        
-        # Build HTML Components for clean rendering
-        badges_html = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
-        totals_html = "".join([f'<div style="font-size: 0.95rem; color: #f0f6fc; min-width: 150px;">• {ing.title()}: <b>{req * p["amt"]}</b></div>' for ing, req in p["ing"].items()])
-        
-        # Final App Card
-        card_html = f"""<div class="app-card">
-<div style="display: flex; justify-content: space-between; align-items: flex-start;">
-<div><p class="pill-tier">{p['tier']}</p><p class="pill-title">{p['name']}</p><p class="pill-effect">✨ {effect_str}</p></div>
-<div style="text-align: right;"><p style="font-size: 0.8rem; color: #8b949e; margin:0;">CRAFTABLE</p><p style="font-size: 2.5rem; color: #58a6ff; font-weight: bold; margin:0;">{p['amt']}</p></div>
-</div>
-<div style="margin-top: 18px;"><p style="font-size: 0.75rem; color: #8b949e; margin-bottom: 5px; font-weight: bold;">BASE RECIPE (PER CRAFT)</p><div style="display: flex; flex-wrap: wrap;">{badges_html}</div></div>
-<div class="total-box"><p style="font-size: 0.8rem; color: #58a6ff; margin-bottom: 10px; font-weight: bold; letter-spacing: 1.2px;">TOTAL REQUIRED FOR {p['amt']}x BATCH</p><div style="display: flex; flex-wrap: wrap; gap: 10px 20px;">{totals_html}</div></div>
-</div>"""
-        
-        st.markdown(card_html, unsafe_allow_html=True)
-else:
-    st.markdown("<div style='text-align: center; opacity: 0.4; padding: 100px;'><p style='font-size: 5rem;'>🥣</p><p style='font-size: 1.2rem;'>Cauldron Empty. Add ingredients to begin alchemy.</p></div>", unsafe_allow_html=True)
+with col_main:
+    if plans:
+        for p in sorted(plans, key=lambda x: x['qi'], reverse=True):
+            val = p['qi'] * 3 if handcrafted else p['qi']
+            effect_str = f"+{val}% Qi Boost" if val > 0 else p['spec']
+            badges_html = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
+            totals_html = "".join([f'<div style="font-size: 0.95rem; color: #f0f6fc; min-width: 150px;">• {ing.title()}: <b>{req * p["amt"]}</b></div>' for ing, req in p["ing"].items()])
+            
+            st.markdown(f"""<div class="app-card">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div><p class="pill-tier">{p['tier']}</p><p class="pill-title">{p['name']}</p><p class="pill-effect">✨ {effect_str}</p></div>
+                    <div style="text-align: right;"><p style="font-size: 0.8rem; color: #8b949e; margin:0;">CRAFTABLE</p><p style="font-size: 2.5rem; color: #58a6ff; font-weight: bold; margin:0;">{p['amt']}</p></div>
+                </div>
+                <div style="margin-top: 18px;"><p style="font-size: 0.75rem; color: #8b949e; margin-bottom: 5px; font-weight: bold;">BASE RECIPE</p><div style="flex-wrap: wrap; display: flex;">{badges_html}</div></div>
+                <div class="total-box"><p style="font-size: 0.8rem; color: #58a6ff; margin-bottom: 10px; font-weight: bold;">TOTAL FOR {p['amt']}x BATCH</p><div style="display: flex; flex-wrap: wrap; gap: 10px 20px;">{totals_html}</div></div>
+            </div>""", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='floating-cauldron'>🥣</div><p style='text-align:center; color:#8b949e;'>Cauldron Empty. Add ingredients.</p>", unsafe_allow_html=True)
+
+with col_side:
+    st.markdown("### 🧪 Near Completion")
+    if discovery:
+        for d in discovery[:6]: # Show top 6 missing-one recipes
+            st.markdown(f"""<div class="discovery-card">
+                <p style="margin:0; font-size: 0.7rem; color: #8b949e; text-transform: uppercase;">{d['tier']}</p>
+                <p style="margin:0; font-weight: bold; color: #f0f6fc; font-size: 1rem;">{d['name']}</p>
+                <p style="margin-top:5px; font-size: 0.85rem; color: #ffab70;">Missing: <b>{d['missing']['needed']}x {d['missing']['name'].title()}</b></p>
+            </div>""", unsafe_allow_html=True)
+    else:
+        st.write("No near-complete recipes.")
