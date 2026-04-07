@@ -11,7 +11,6 @@ st.markdown("""
     header {visibility: hidden;}
     footer {visibility: hidden;}
     
-    /* Animations */
     @keyframes float {
         0% { transform: translateY(0px); }
         50% { transform: translateY(-15px); }
@@ -31,7 +30,18 @@ st.markdown("""
     
     .pill-title { color: #58a6ff; font-size: 1.6rem; font-weight: 700; margin: 0; }
     .pill-tier { color: #8b949e; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
-    .pill-effect { color: #3fb950; font-weight: 500; font-size: 1.1rem; margin-top: 5px; }
+    
+    /* Benefit Styling */
+    .benefit-tag {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin-right: 8px;
+    }
+    .qi-tag { background: rgba(63, 185, 80, 0.15); color: #3fb950; border: 1px solid rgba(63, 185, 80, 0.3); }
+    .spec-tag { background: rgba(187, 128, 255, 0.15); color: #d2a8ff; border: 1px solid rgba(187, 128, 255, 0.3); }
     
     .badge {
         display: inline-block;
@@ -64,7 +74,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # -------------------------------
-# VERIFIED MASTER DATASET
+# DATASET
 # -------------------------------
 def get_db():
     return {
@@ -165,20 +175,16 @@ with st.sidebar:
         else:
             inv[h] = val
 
-# -------------------------------
-# CALCULATION ENGINE
-# -------------------------------
+# Calculation
 plans = []
 discovery = []
 total_qi_potential = 0
 
 for name, variants in db.items():
     for v in variants:
-        # Check craftability
         possible_crafts = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
         amt = min(possible_crafts) if possible_crafts else 0
         
-        # Discovery: Missing only 1 ingredient type?
         missing = []
         for ing, req in v["ingredients"].items():
             if inv.get(ing, 0) < req:
@@ -203,24 +209,47 @@ m2.metric("Total Qi Potential", f"+{total_qi_potential}%")
 m3.metric("Mode", "Handcrafted" if handcrafted else "Standard")
 st.divider()
 
-# Left Column: Craftable | Right Column: Discovery
 col_main, col_side = st.columns([2, 1])
 
 with col_main:
     if plans:
         for p in sorted(plans, key=lambda x: x['qi'], reverse=True):
+            # Calculate Benefits
             val = p['qi'] * 3 if handcrafted else p['qi']
-            effect_str = f"+{val}% Qi Boost" if val > 0 else p['spec']
+            benefit_html = ""
+            if val > 0:
+                benefit_html += f'<span class="benefit-tag qi-tag">+{val}% Qi Boost</span>'
+            if p.get('spec'):
+                benefit_html += f'<span class="benefit-tag spec-tag">✨ {p["spec"]}</span>'
+            
             badges_html = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
             totals_html = "".join([f'<div style="font-size: 0.95rem; color: #f0f6fc; min-width: 150px;">• {ing.title()}: <b>{req * p["amt"]}</b></div>' for ing, req in p["ing"].items()])
             
             st.markdown(f"""<div class="app-card">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                    <div><p class="pill-tier">{p['tier']}</p><p class="pill-title">{p['name']}</p><p class="pill-effect">✨ {effect_str}</p></div>
-                    <div style="text-align: right;"><p style="font-size: 0.8rem; color: #8b949e; margin:0;">CRAFTABLE</p><p style="font-size: 2.5rem; color: #58a6ff; font-weight: bold; margin:0;">{p['amt']}</p></div>
+                    <div>
+                        <p class="pill-tier">{p['tier']}</p>
+                        <p class="pill-title">{p['name']}</p>
+                        <div style="margin-top: 8px;">{benefit_html}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <p style="font-size: 0.8rem; color: #8b949e; margin:0;">CRAFTABLE</p>
+                        <p style="font-size: 2.5rem; color: #58a6ff; font-weight: bold; margin:0;">{p['amt']}</p>
+                    </div>
                 </div>
-                <div style="margin-top: 18px;"><p style="font-size: 0.75rem; color: #8b949e; margin-bottom: 5px; font-weight: bold;">BASE RECIPE</p><div style="flex-wrap: wrap; display: flex;">{badges_html}</div></div>
-                <div class="total-box"><p style="font-size: 0.8rem; color: #58a6ff; margin-bottom: 10px; font-weight: bold;">TOTAL FOR {p['amt']}x BATCH</p><div style="display: flex; flex-wrap: wrap; gap: 10px 20px;">{totals_html}</div></div>
+                
+                <div style="margin-top: 18px;">
+                    <p style="font-size: 0.75rem; color: #8b949e; margin-bottom: 5px; font-weight: bold;">BASE RECIPE (PER PILL)</p>
+                    <div style="flex-wrap: wrap; display: flex;">{badges_html}</div>
+                </div>
+
+                <div class="total-box">
+                    <p style="font-size: 0.8rem; color: #58a6ff; margin-bottom: 10px; font-weight: bold;">BATCH SUMMARY ({p['amt']} PILLS)</p>
+                    <div style="display: flex; flex-wrap: wrap; gap: 10px 20px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px; margin-bottom: 10px;">
+                        {totals_html}
+                    </div>
+                    <p style="font-size: 0.85rem; color: #3fb950; margin:0;">Total Batch Gain: <b>+{val * p['amt']}% Qi Potential</b></p>
+                </div>
             </div>""", unsafe_allow_html=True)
     else:
         st.markdown("<div class='floating-cauldron'>🥣</div><p style='text-align:center; color:#8b949e;'>Cauldron Empty. Add ingredients.</p>", unsafe_allow_html=True)
@@ -228,7 +257,7 @@ with col_main:
 with col_side:
     st.markdown("### 🧪 Near Completion")
     if discovery:
-        for d in discovery[:6]: # Show top 6 missing-one recipes
+        for d in discovery[:6]:
             st.markdown(f"""<div class="discovery-card">
                 <p style="margin:0; font-size: 0.7rem; color: #8b949e; text-transform: uppercase;">{d['tier']}</p>
                 <p style="margin:0; font-weight: bold; color: #f0f6fc; font-size: 1rem;">{d['name']}</p>
