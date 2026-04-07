@@ -43,7 +43,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # -------------------------------
-# DATASET (Audited Recipes)
+# DATASET
 # -------------------------------
 def get_db():
     return {
@@ -133,7 +133,7 @@ with st.sidebar:
     search = st.text_input("🔍 Search herbs...", "")
     inv = {h: st.number_input(h.title(), min_value=0, key=f"i_{h}") if search.lower() in h.lower() else st.session_state.get(f"i_{h}", 0) for h in all_herbs}
 
-# Main UI
+# Main UI Header
 st.markdown("<h1 style='color:white;'>Alchemy Dashboard</h1>", unsafe_allow_html=True)
 m1, m2 = st.columns(2)
 m1.metric("Items in Stock", sum(inv.values()))
@@ -143,15 +143,31 @@ st.divider()
 plans = []
 for name, variants in db.items():
     for v in variants:
-        amt = min([inv.get(ing, 0) // req for ing, req in v["ingredients"].items()])
+        # Calculate max craftable amount
+        possible_crafts = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
+        amt = min(possible_crafts) if possible_crafts else 0
+        
         if amt > 0:
-            plans.append({"name": name, "tier": v["tier"], "amt": amt, "qi": v["qi"], "spec": v.get("spec"), "ing": v["ingredients"]})
+            plans.append({
+                "name": name, 
+                "tier": v["tier"], 
+                "amt": amt, 
+                "qi": v["qi"], 
+                "spec": v.get("spec"), 
+                "ing": v["ingredients"]
+            })
 
+# Render Recipe Cards
 if plans:
     for p in sorted(plans, key=lambda x: x['qi'], reverse=True):
         val = p['qi'] * 3 if handcrafted else p['qi']
         effect_str = f"+{val}% Qi Boost" if val > 0 else p['spec']
         
+        # Build badge and total list strings separately to ensure clean rendering
+        base_badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
+        total_list = "".join([f'<div style="font-size: 0.9rem; color: white;">• {ing.title()}: <b>{req * p["amt"]}</b></div>' for ing, req in p["ing"].items()])
+        
+        # Main Markdown block
         st.markdown(f"""
         <div class="app-card">
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -168,16 +184,16 @@ if plans:
             
             <div style="margin-top: 15px;">
                 <p style="font-size: 0.75rem; color: #8b949e; margin-bottom: 5px;">BASE RECIPE (PER PILL)</p>
-                {" ".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])}
+                <div style="display: flex; flex-wrap: wrap;">{base_badges}</div>
             </div>
             
             <div class="total-box">
                 <p style="font-size: 0.75rem; color: #58a6ff; margin-bottom: 8px; font-weight: bold; letter-spacing: 1px;">TOTAL MATERIALS FOR {p['amt']}x CRAFT</p>
                 <div style="display: flex; flex-wrap: wrap; gap: 15px;">
-                    {" ".join([f'<div style="font-size: 0.9rem; color: white;">• {ing.title()}: <b>{req * p["amt"]}</b></div>' for ing, req in p["ing"].items()])}
+                    {total_list}
                 </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 else:
-    st.markdown("<div style='text-align: center; opacity: 0.5; padding: 50px;'><p style='font-size: 4rem;'>🥣</p><p>Add ingredients to begin brewing.</p></div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; opacity: 0.5; padding: 50px;'><p style='font-size: 4rem;'>🥣</p><p>Add ingredients in the storage chest to begin brewing.</p></div>", unsafe_allow_html=True)
