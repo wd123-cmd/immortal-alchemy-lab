@@ -7,7 +7,7 @@ import difflib
 import re
 
 # -------------------------------
-# 1. MEMORY-SAFE & ISOLATED ENGINE
+# 1. EUCLIDEAN PROXIMITY ENGINE (The Final Boss Killer)
 # -------------------------------
 @st.cache_resource
 def load_ocr():
@@ -18,7 +18,6 @@ def get_herb_aliases(herb_name):
     base = herb_name.lower().replace(" ", "")
     aliases = [base]
     
-    # Add individual words to catch fragmented reads
     for w in herb_name.lower().split():
         if len(w) > 3: 
             aliases.append(w)
@@ -57,76 +56,82 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # 1.5x Upscale
+    # Memory-Safe Upscaling
     img_cv = cv2.resize(img_cv, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
-    # High-sensitivity scan
     results = reader.readtext(gray, text_threshold=0.2, low_text=0.2)
-    results.sort(key=lambda x: x[0][0][1])
-
-    found_data = {}
+    
+    numbers_found = []
+    herbs_found = []
     raw_text_seen = []
     
-    for i, (bbox, text, prob) in enumerate(results):
+    # PHASE 1: Categorize all text on the screen
+    for bbox, text, prob in results:
         raw_text_seen.append(text)
         clean = text.lower().replace(' ', '')
         
-        # Intercept the exact OCR glitch where "12" merges into "Z"
+        # Exact UI gltich intercepts
         if 'xz' in clean or 'xlz' in clean or 'xiz' in clean:
             clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12')
             
         clean = clean.replace('i', '1').replace('|', '1').replace('l', '1')
         clean = clean.replace('s', '5').replace('o', '0').replace('z', '2')
         
-        # Quantity Found
+        cx = (bbox[0][0] + bbox[1][0]) / 2
+        cy = (bbox[0][1] + bbox[2][1]) / 2
+        
+        # If it's a number, save its location
         if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
             try:
                 num_str = ''.join(filter(str.isdigit, clean))
-                if not num_str: continue
-                quantity = int(num_str)
-                
-                num_x = (bbox[0][0] + bbox[1][0]) / 2
-                num_y = (bbox[0][1] + bbox[2][1]) / 2
-                
-                valid_words = []
-                for j in range(1, 12): 
-                    if i + j < len(results):
-                        name_bbox = results[i+j][0]
-                        name_x = (name_bbox[0][0] + name_bbox[1][0]) / 2
-                        name_y = (name_bbox[0][1] + name_bbox[2][1]) / 2
-                        
-                        y_diff = name_y - num_y
-                        x_diff = abs(name_x - num_x)
-                        
-                        # THE FIX: Tightened horizontal limit to 50px to prevent cross-column contamination!
-                        if 0 < y_diff < 200 and x_diff < 50: 
-                            word = re.sub(r'[^a-z]', '', results[i+j][1].lower())
-                            if len(word) > 2: 
-                                valid_words.append(word)
-                
-                if not valid_words: continue
-                
-                best_match = None
-                
+                if num_str:
+                    numbers_found.append({'qty': int(num_str), 'x': cx, 'y': cy})
+            except: pass
+        else:
+            # If it's a word, check if it belongs to an herb
+            word = re.sub(r'[^a-z]', '', text.lower())
+            if len(word) > 2:
+                matched_herb = None
                 for herb in herb_list:
                     aliases = get_herb_aliases(herb)
-                    for word in valid_words:
-                        if word in aliases:
-                            best_match = herb
+                    if word in aliases:
+                        matched_herb = herb
+                        break
+                    for alias in aliases:
+                        if len(alias) > 4 and difflib.SequenceMatcher(None, word, alias).ratio() > 0.80:
+                            matched_herb = herb
                             break
-                        for alias in aliases:
-                            if len(alias) > 4 and difflib.SequenceMatcher(None, word, alias).ratio() > 0.80:
-                                best_match = herb
-                                break
-                        if best_match: break
-                    if best_match: break
+                    if matched_herb: break
                 
-                if best_match:
-                    if best_match not in found_data or quantity > found_data[best_match]:
-                        found_data[best_match] = quantity
-            except: continue
-            
+                # If we recognized the word, save its location
+                if matched_herb:
+                    herbs_found.append({'herb': matched_herb, 'x': cx, 'y': cy})
+
+    # PHASE 2: Connect the Dots (Euclidean Proximity)
+    found_data = {}
+    for num in numbers_found:
+        best_herb = None
+        min_distance = float('inf')
+        
+        for h in herbs_found:
+            # Rule 1: The herb name must be physically BELOW the number
+            y_diff = h['y'] - num['y']
+            if 0 < y_diff < 300: # Look up to 300px down
+                
+                # Rule 2: Calculate true diagonal distance between number and word
+                distance = ((h['x'] - num['x'])**2 + y_diff**2)**0.5
+                
+                # Rule 3: Lock onto the closest word (max radius 250px to avoid crossing columns)
+                if distance < min_distance and distance < 250:
+                    min_distance = distance
+                    best_herb = h['herb']
+                    
+        # Finalize the match
+        if best_herb:
+            if best_herb not in found_data or num['qty'] > found_data[best_herb]:
+                found_data[best_herb] = num['qty']
+                
     return found_data, raw_text_seen
 
 # -------------------------------
@@ -193,7 +198,7 @@ with tab2:
     
     if ss_file:
         if st.button("✨ Decompile Image"):
-            with st.spinner("Decoding Spirit Herbs..."):
+            with st.spinner("Calculating Proximity & Decoding Herbs..."):
                 found, raw_text = decompile_screenshot(ss_file, all_herbs)
                 
                 st.session_state['debug_log'] = raw_text
