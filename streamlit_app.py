@@ -7,7 +7,7 @@ import difflib
 import re
 
 # -------------------------------
-# 1. MEMORY-SAFE & LASER-FOCUSED ENGINE
+# 1. MEMORY-SAFE & WORD-ISOLATED ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
@@ -17,16 +17,17 @@ def get_herb_aliases(herb_name):
     """Maps actual herb names to known OCR hallucinations."""
     base = herb_name.lower().replace(" ", "")
     aliases = [base]
-    words = herb_name.lower().split()
-    if len(words) > 1:
-        aliases.append(words[-1]) 
-        aliases.append(words[0])
-        
+    
+    # Add individual words as valid standalone aliases (e.g., "moonlight")
+    for w in herb_name.lower().split():
+        if len(w) > 3: 
+            aliases.append(w)
+            
     mapping = {
-        "healing sunflower": ["sundlng", "hcalig", "healig", "sunllower", "sunflower", "sunllowe"],
-        "black iron root": ["ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "ironroot", "bledk"],
-        "blue wave coral herb": ["ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "coralherb", "bluewave", "uallub"],
-        "thousand year lotus": ["hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "thousand", "yearlotus", "iboutnd", "ycclas"],
+        "healing sunflower": ["sundlng", "hcalig", "healig", "sunllower", "sunflower", "sunllowe", "healing"],
+        "black iron root": ["ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "ironroot", "bledk", "black"],
+        "blue wave coral herb": ["ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "coralherb", "bluewave", "uallub", "coral"],
+        "thousand year lotus": ["hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "thousand", "yearlotus", "iboutnd", "ycclas", "lotus"],
         "moonlight jade leaf": ["saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "moonlight", "jadeleaf", "meonligbt", "jadglca"],
         "ironbone grass": ["iobge", "kuboue", "ouboue", "bonbone", "gtass", "ironbone", "grass", "konbong"],
         "nine suns flame grass": ["ninesuns", "flamegrass"],
@@ -78,6 +79,7 @@ def decompile_screenshot(image_file, herb_list):
         clean = clean.replace('i', '1').replace('|', '1').replace('l', '1')
         clean = clean.replace('s', '5').replace('o', '0').replace('z', '2')
         
+        # Quantity Found
         if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
             try:
                 num_str = ''.join(filter(str.isdigit, clean))
@@ -87,8 +89,8 @@ def decompile_screenshot(image_file, herb_list):
                 num_x = (bbox[0][0] + bbox[1][0]) / 2
                 num_y = (bbox[0][1] + bbox[2][1]) / 2
                 
-                combined_words = []
-                for j in range(1, 8): 
+                valid_words = []
+                for j in range(1, 10): 
                     if i + j < len(results):
                         name_bbox = results[i+j][0]
                         name_x = (name_bbox[0][0] + name_bbox[1][0]) / 2
@@ -97,34 +99,34 @@ def decompile_screenshot(image_file, herb_list):
                         y_diff = name_y - num_y
                         x_diff = abs(name_x - num_x)
                         
-                        # LASER FOCUS: Tightly bound geometry to prevent grabbing wrong columns/rows
-                        if 0 < y_diff < 160 and x_diff < 100: 
+                        # Safe Bounding Box: Only checks words physically below the number
+                        if 0 < y_diff < 260 and x_diff < 100: 
                             word = re.sub(r'[^a-z]', '', results[i+j][1].lower())
-                            combined_words.append(word)
+                            if len(word) > 2: # Ignore 1 or 2 letter artifacts
+                                valid_words.append(word)
                 
-                if not combined_words: continue
-                combined_str = "".join(combined_words)
+                if not valid_words: continue
                 
                 best_match = None
-                best_ratio = 0.0
                 
+                # WORD-BY-WORD CHECKER
                 for herb in herb_list:
                     aliases = get_herb_aliases(herb)
-                    for alias in aliases:
-                        if alias in combined_str:
+                    for word in valid_words:
+                        # 1. Exact alias match (e.g., word is "bledk")
+                        if word in aliases:
                             best_match = herb
-                            best_ratio = 1.0
-                            break # Break alias loop
+                            break
                         
-                        ratio = difflib.SequenceMatcher(None, alias, combined_str).ratio()
-                        if ratio > best_ratio:
-                            best_ratio = ratio
-                            best_match = herb
-                            
-                    if best_ratio == 1.0: 
-                        break # Break herb list loop to stop overwriting!
+                        # 2. Forgiving Fuzzy Match (e.g., word is "healiig" vs alias "healing")
+                        for alias in aliases:
+                            if len(alias) > 4 and difflib.SequenceMatcher(None, word, alias).ratio() > 0.80:
+                                best_match = herb
+                                break
+                        if best_match: break
+                    if best_match: break
                 
-                if best_match and best_ratio > 0.40:
+                if best_match:
                     if best_match not in found_data or quantity > found_data[best_match]:
                         found_data[best_match] = quantity
             except: continue
