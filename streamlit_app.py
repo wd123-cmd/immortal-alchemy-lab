@@ -7,7 +7,7 @@ import difflib
 import re
 
 # -------------------------------
-# 1. EUCLIDEAN PROXIMITY ENGINE (The Final Boss Killer)
+# 1. THE VERTICAL RAYCASTER ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
@@ -15,34 +15,29 @@ def load_ocr():
 
 def get_herb_aliases(herb_name):
     """Maps actual herb names to known OCR hallucinations."""
-    base = herb_name.lower().replace(" ", "")
-    aliases = [base]
+    aliases = []
     
-    for w in herb_name.lower().split():
-        if len(w) > 3: 
-            aliases.append(w)
-            
     mapping = {
-        "healing sunflower": ["sundlng", "hcalig", "healig", "sunllower", "sunflower", "sunllowe", "healing"],
-        "black iron root": ["ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "ironroot", "bledk", "black"],
-        "blue wave coral herb": ["ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "coralherb", "bluewave", "uallub", "coral"],
-        "thousand year lotus": ["hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "thousand", "yearlotus", "iboutnd", "ycclas", "lotus"],
-        "moonlight jade leaf": ["saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "moonlight", "jadeleaf", "meonligbt", "jadglca"],
-        "ironbone grass": ["iobge", "kuboue", "ouboue", "bonbone", "gtass", "ironbone", "grass", "konbong"],
+        "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling"],
+        "black iron root": ["black", "ironroot", "ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "bledk"],
+        "blue wave coral herb": ["blue", "wave", "coral", "ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "uallub"],
+        "thousand year lotus": ["thousand", "lotus", "hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "iboutnd", "ycclas"],
+        "moonlight jade leaf": ["moonlight", "jadeleaf", "saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "meonligbt", "jadglca"],
+        "ironbone grass": ["ironbone", "gtass", "iobge", "kuboue", "ouboue", "bonbone", "konbong"],
         "nine suns flame grass": ["ninesuns", "flamegrass"],
-        "purple lightning orchid": ["purplelightning", "orchid"],
-        "red ginseng": ["ginseng"],
-        "bitter jade grass": ["bitterjade"],
-        "cloud mist herb": ["cloudmist", "mistherb"],
+        "purple lightning orchid": ["purple", "orchid", "lightning"],
+        "red ginseng": ["ginseng", "red"],
+        "bitter jade grass": ["bitter", "jadegrass"],
+        "cloud mist herb": ["cloud", "mist", "mistherb"],
         "spirit spring herb": ["spiritspring", "springherb"],
         "dandelion of qi": ["dandelion", "ofqi"],
         "seven star flower": ["sevenstar", "starflower"],
         "starlight dew herb": ["starlight", "dewherb"],
         "heavenly spirit vine": ["heavenly", "spiritvine"],
         "mountain green herb": ["mountain", "greenherb"],
-        "wild spirit grass": ["wildspirit"],
-        "azure serpent grass": ["azureserpent"],
-        "wild bitter grass": ["wildbitter"]
+        "wild spirit grass": ["wildspirit", "wild"],
+        "azure serpent grass": ["azure", "serpent"],
+        "wild bitter grass": ["wildbitter", "bittergrass"]
     }
     
     if herb_name.lower() in mapping:
@@ -56,7 +51,7 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # Memory-Safe Upscaling
+    # Memory-Safe 1.5x Upscale
     img_cv = cv2.resize(img_cv, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
@@ -66,22 +61,19 @@ def decompile_screenshot(image_file, herb_list):
     herbs_found = []
     raw_text_seen = []
     
-    # PHASE 1: Categorize all text on the screen
-    for bbox, text, prob in results:
+    # PHASE 1: Identify all Coordinates
+    for i, (bbox, text, prob) in enumerate(results):
         raw_text_seen.append(text)
         clean = text.lower().replace(' ', '')
         
-        # Exact UI gltich intercepts
-        if 'xz' in clean or 'xlz' in clean or 'xiz' in clean:
-            clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12')
-            
+        # Intercept UI glitches
+        clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12')
         clean = clean.replace('i', '1').replace('|', '1').replace('l', '1')
         clean = clean.replace('s', '5').replace('o', '0').replace('z', '2')
         
         cx = (bbox[0][0] + bbox[1][0]) / 2
         cy = (bbox[0][1] + bbox[2][1]) / 2
         
-        # If it's a number, save its location
         if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
             try:
                 num_str = ''.join(filter(str.isdigit, clean))
@@ -89,7 +81,6 @@ def decompile_screenshot(image_file, herb_list):
                     numbers_found.append({'qty': int(num_str), 'x': cx, 'y': cy})
             except: pass
         else:
-            # If it's a word, check if it belongs to an herb
             word = re.sub(r'[^a-z]', '', text.lower())
             if len(word) > 2:
                 matched_herb = None
@@ -104,31 +95,21 @@ def decompile_screenshot(image_file, herb_list):
                             break
                     if matched_herb: break
                 
-                # If we recognized the word, save its location
                 if matched_herb:
                     herbs_found.append({'herb': matched_herb, 'x': cx, 'y': cy})
 
-    # PHASE 2: Connect the Dots (Euclidean Proximity)
+    # PHASE 2: Vertical Raycasting
     found_data = {}
     for num in numbers_found:
-        best_herb = None
-        min_distance = float('inf')
+        # Find herbs strictly below the number with a max 80px horizontal variance
+        valid_herbs = [h for h in herbs_found if h['y'] > num['y'] and abs(h['x'] - num['x']) < 80]
         
-        for h in herbs_found:
-            # Rule 1: The herb name must be physically BELOW the number
-            y_diff = h['y'] - num['y']
-            if 0 < y_diff < 300: # Look up to 300px down
-                
-                # Rule 2: Calculate true diagonal distance between number and word
-                distance = ((h['x'] - num['x'])**2 + y_diff**2)**0.5
-                
-                # Rule 3: Lock onto the closest word (max radius 250px to avoid crossing columns)
-                if distance < min_distance and distance < 250:
-                    min_distance = distance
-                    best_herb = h['herb']
-                    
-        # Finalize the match
-        if best_herb:
+        if valid_herbs:
+            # Sort by which one is physically closest to the bottom of the number
+            valid_herbs.sort(key=lambda h: h['y'] - num['y'])
+            best_herb = valid_herbs[0]['herb']
+            
+            # Save it
             if best_herb not in found_data or num['qty'] > found_data[best_herb]:
                 found_data[best_herb] = num['qty']
                 
@@ -198,7 +179,7 @@ with tab2:
     
     if ss_file:
         if st.button("✨ Decompile Image"):
-            with st.spinner("Calculating Proximity & Decoding Herbs..."):
+            with st.spinner("Raycasting Layout & Decoding Herbs..."):
                 found, raw_text = decompile_screenshot(ss_file, all_herbs)
                 
                 st.session_state['debug_log'] = raw_text
