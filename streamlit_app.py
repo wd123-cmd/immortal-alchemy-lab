@@ -5,10 +5,11 @@ import easyocr
 from PIL import Image
 
 # -------------------------------
-# 1. PIXEL-PERFECT DECOMPILER ENGINE
+# 1. ADVANCED DECOMPILER ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
+    # Load model once to save server RAM
     return easyocr.Reader(['en'], gpu=False)
 
 def decompile_screenshot(image_file, herb_list):
@@ -17,72 +18,125 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # --- PRE-PROCESSING ---
-    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-    # High-threshold to isolate only the white text from the dark background
-    _, thresh = cv2.threshold(gray, 210, 255, cv2.THRESH_BINARY)
+    # --- UPSCALING PRE-PROCESSING ---
+    # Resize to 200% to make the stylised game font thicker and clearer
+    img_cv = cv2.resize(img_cv, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
     
-    # Scan both original and processed for maximum coverage
-    results = reader.readtext(thresh) + reader.readtext(img_cv)
-    # Sort top-to-bottom
-    results.sort(key=lambda x: x[0][0][1])
-
+    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
+    # Mild contrast boost instead of harsh thresholding
+    contrast = cv2.convertScaleAbs(gray, alpha=1.3, beta=0)
+    
+    # Scan the processed image
+    results = reader.readtext(contrast)
+    
     found_data = {}
+    raw_text_seen = []
+    
     for i, (bbox, text, prob) in enumerate(results):
-        # FONT CORRECTION
-        clean = text.lower().replace(' ', '').replace('i', '1').replace('s', '5').replace('o', '0')
+        raw_text_seen.append(text)
         
-        # Check for Quantity (e.g., x12, 12)
-        if any(char.isdigit() for char in clean) and len(clean) < 6:
+        # FONT CORRECTION: Fix common game font OCR mistakes
+        clean = text.lower().replace(' ', '')
+        clean = clean.replace('i', '1').replace('|', '1').replace('s', '5').replace('o', '0')
+        
+        # Check if text is a quantity (x12, 12, etc.)
+        if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
             try:
                 num_str = ''.join(filter(str.isdigit, clean))
                 if not num_str: continue
                 quantity = int(num_str)
                 
-                # Get the horizontal center of the number
-                num_center_x = (bbox[0][0] + bbox[1][0]) / 2
+                # Get Center Coordinates of the Number Box
+                num_x = (bbox[0][0] + bbox[1][0]) / 2
+                num_y = (bbox[0][1] + bbox[2][1]) / 2
                 
-                # SEARCH BELOW: Look for a name aligned horizontally with this number
-                for j in range(1, 6):
-                    if i + j < len(results):
-                        potential_name = results[i+j][1].lower().strip()
-                        name_bbox = results[i+j][0]
-                        name_center_x = (name_bbox[0][0] + name_bbox[1][0]) / 2
-                        
-                        # Only pair if the name is vertically under the number (within 50px offset)
-                        if abs(num_center_x - name_center_x) < 50:
-                            for herb in herb_list:
-                                if herb.lower() in potential_name or potential_name in herb.lower():
+                # STRICT ALIGNMENT SEARCH: Look for a name directly below this number
+                for j, (name_bbox, name_text, name_prob) in enumerate(results):
+                    if i == j: continue
+                    
+                    name_x = (name_bbox[0][0] + name_bbox[1][0]) / 2
+                    name_y = (name_bbox[0][1] + name_bbox[2][1]) / 2
+                    
+                    y_diff = name_y - num_y
+                    x_diff = abs(name_x - num_x)
+                    
+                    # Name must be vertically below (0 to 200px) and horizontally aligned (< 150px offset)
+                    if 0 < y_diff < 200 and x_diff < 150: 
+                        potential_name = name_text.lower().strip()
+                        for herb in herb_list:
+                            # Fuzzy matching
+                            if herb.lower() in potential_name or potential_name in herb.lower():
+                                # Prevent duplicates/overwrites unless quantity is higher
+                                if herb not in found_data or quantity > found_data[herb]:
                                     found_data[herb] = quantity
-                                    break
+                                break
             except: continue
-    return found_data
+            
+    return found_data, raw_text_seen
 
 # -------------------------------
-# 2. COMPLETE RECIPE DATABASE
+# 2. FULL RECIPE DATABASE
 # -------------------------------
 def get_db():
     return {
-        "Nine Yang Pill": [{"tier": "Standard", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "ironbone grass": 2, "crimson flame mushroom": 1}, "qi": 92}, {"tier": "Heavenly", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "black iron root": 2, "crimson flame mushroom": 1}, "qi": 120}],
-        "Jade Tide Pill": [{"tier": "Standard", "ingredients": {"blue wave coral herb": 2, "moonlight jade leaf": 2, "red ginseng": 1, "bitter jade grass": 1}, "qi": 150}, {"tier": "Heavenly", "ingredients": {"blue wave coral herb": 2, "black iron root": 1, "crimson flame mushroom": 1, "bitter jade grass": 2}, "qi": 162}],
+        "Nine Yang Pill": [
+            {"tier": "Standard", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "ironbone grass": 2, "crimson flame mushroom": 1}, "qi": 92},
+            {"tier": "Heavenly", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "black iron root": 2, "crimson flame mushroom": 1}, "qi": 120}
+        ],
+        "Jade Tide Pill": [
+            {"tier": "Standard", "ingredients": {"blue wave coral herb": 2, "moonlight jade leaf": 2, "red ginseng": 1, "bitter jade grass": 1}, "qi": 150},
+            {"tier": "Heavenly", "ingredients": {"blue wave coral herb": 2, "black iron root": 1, "crimson flame mushroom": 1, "bitter jade grass": 2}, "qi": 162}
+        ],
         "Stormheart Pill": [{"tier": "Heavenly", "ingredients": {"cloud mist herb": 4, "spirit spring herb": 2}, "qi": 225}],
         "Lotus Nirvana Pill": [{"tier": "Standard", "ingredients": {"thousand year lotus": 6}, "qi": 50}],
-        "Starborn Agility Pill": [{"tier": "Heavenly", "ingredients": {"seven star flower": 5, "cloud mist herb": 1}, "qi": 230}],
-        "Dragon Pulse Pill": [{"tier": "Heavenly (V2)", "ingredients": {"blue wave coral herb": 2, "silverleaf herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 168}],
+        "Starborn Agility Pill": [
+            {"tier": "Imperfect", "ingredients": {"dandelion of qi": 1, "seven star flower": 2, "blue wave coral herb": 1, "cloud mist herb": 1, "spirit spring herb": 1}, "qi": 115},
+            {"tier": "Heavenly", "ingredients": {"seven star flower": 5, "cloud mist herb": 1}, "qi": 230}
+        ],
+        "Dragon Pulse Pill": [
+            {"tier": "Imperfect", "ingredients": {"blue wave coral herb": 2, "cloud mist herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 80},
+            {"tier": "Heavenly (V1)", "ingredients": {"blue wave coral herb": 2, "cloud mist herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 160},
+            {"tier": "Heavenly (V2)", "ingredients": {"blue wave coral herb": 2, "silverleaf herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 168}
+        ],
         "Void Clarity Pill": [{"tier": "Standard", "ingredients": {"starlight dew herb": 2, "cloud mist herb": 2, "heavenly spirit vine": 1, "bitter jade grass": 1}, "qi": 170}],
-        "Celestial Harmony Pill": [{"tier": "Heavenly", "ingredients": {"thousand year lotus": 1, "silverleaf herb": 1, "seven star flower": 3, "moonlight jade leaf": 1}, "qi": 236}],
-        "Seven Star Enlightenment": [{"tier": "Heavenly (Pure)", "ingredients": {"heavenly spirit vine": 1, "starlight dew herb": 5}, "qi": 295}],
-        "Dragon Essence Pill": [{"tier": "Heavenly", "ingredients": {"heavenly spirit vine": 2, "purple lightning orchid": 1, "nine suns flame grass": 1, "moonlight jade leaf": 1}, "qi": 0, "spec": "24% Lifespan"}],
-        "Sun Roses Rebirth": [{"tier": "Vit V3", "ingredients": {"healing sunflower": 2, "ironbone grass": 2, "red ginseng": 1, "crimson flame mushroom": 1}, "qi": 0, "spec": "45% Vitality (Perm)"}],
+        "Celestial Harmony Pill": [
+            {"tier": "Imperfect", "ingredients": {"silverleaf herb": 1, "seven star flower": 1, "mountain green herb": 1, "qi dandelion": 1, "wild spirit grass": 2}, "qi": 90},
+            {"tier": "Heavenly", "ingredients": {"thousand year lotus": 1, "silverleaf herb": 1, "seven star flower": 3, "moonlight jade leaf": 1}, "qi": 236}
+        ],
+        "Seven Star Enlightenment": [
+            {"tier": "Imperfect", "ingredients": {"spirit spring herb": 1, "seven star flower": 2, "starlight dew herb": 2, "silverleaf herb": 1}, "qi": 125},
+            {"tier": "Heavenly (Lotus)", "ingredients": {"thousand year lotus": 2, "blue wave coral herb": 1, "heavenly spirit vine": 1, "starlight dew herb": 2}, "qi": 285},
+            {"tier": "Heavenly (Pure)", "ingredients": {"heavenly spirit vine": 1, "starlight dew herb": 5}, "qi": 295}
+        ],
+        "Dragon Essence Pill": [
+            {"tier": "Standard", "ingredients": {"azure serpent grass": 1, "purple lightning orchid": 1, "nine suns flame grass": 1, "crimson flame mushroom": 2, "cloud mist herb": 1}, "qi": 0, "spec": "18% Lifespan"},
+            {"tier": "Heavenly", "ingredients": {"heavenly spirit vine": 2, "purple lightning orchid": 1, "nine suns flame grass": 1, "moonlight jade leaf": 1}, "qi": 0, "spec": "24% Lifespan"}
+        ],
+        "Sun Roses Rebirth": [
+            {"tier": "Vit V1", "ingredients": {"wild bitter grass": 2, "red ginseng": 1, "healing sunflower": 2, "mountain green herb": 1}, "qi": 0, "spec": "20% Vitality (Perm)"},
+            {"tier": "Vit V2", "ingredients": {"mountain green herb": 3, "healing sunflower": 3}, "qi": 0, "spec": "20% Vitality (Perm)"},
+            {"tier": "Vit V3", "ingredients": {"healing sunflower": 2, "ironbone grass": 2, "red ginseng": 1, "crimson flame mushroom": 1}, "qi": 0, "spec": "45% Vitality (Perm)"},
+            {"tier": "Vit V4", "ingredients": {"healing sunflower": 2, "ironbone grass": 3, "red ginseng": 1}, "qi": 0, "spec": "41% Vitality (Perm)"}
+        ],
         "Phoenix Ember Pill": [{"tier": "Standard", "ingredients": {"crimson flame mushroom": 1, "silverleaf herb": 1, "mountain green herb": 1, "qi dandelion": 2, "spirit spring herb": 1}, "qi": 0, "spec": "70% Vit / 40% Spd"}],
-        "Mistveil Focus Pill": [{"tier": "Focus-V3", "ingredients": {"cloud mist herb": 2, "spirit spring herb": 2, "starlight dew herb": 1, "heavenly spirit vine": 1}, "qi": 260}],
+        "Mistveil Focus Pill": [
+            {"tier": "Standard", "ingredients": {"silverleaf herb": 3, "spirit spring herb": 3}, "qi": 238},
+            {"tier": "Focus-V2", "ingredients": {"silverleaf herb": 3, "spirit spring herb": 2, "seven star flower": 1}, "qi": 245},
+            {"tier": "Focus-V3", "ingredients": {"cloud mist herb": 2, "spirit spring herb": 2, "starlight dew herb": 1, "heavenly spirit vine": 1}, "qi": 260}
+        ],
+        "Concentration Pill": [
+            {"tier": "Dandelion Mix", "ingredients": {"seven star flower": 1, "azure serpent grass": 3, "dandelion of qi": 2}, "qi": 100},
+            {"tier": "Pure Mix", "ingredients": {"seven star flower": 3, "azure serpent grass": 3}, "qi": 100},
+            {"tier": "Spring Mix", "ingredients": {"seven star flower": 1, "azure serpent grass": 3, "spirit spring herb": 2}, "qi": 100}
+        ],
         "Ironclad Resolve": [{"tier": "Heavenly", "ingredients": {"silverleaf herb": 1, "moonlight jade leaf": 1, "spirit spring herb": 1, "crimson flame mushroom": 1, "black iron root": 2}, "qi": 0, "spec": "Perm Str/Vit"}],
+        "Tideborn Vigor": [{"tier": "Heavenly", "ingredients": {"wild spirit grass": 1, "wild bitter grass": 1, "red ginseng": 1, "silverleaf herb": 1, "mountain green herb": 1, "qi dandelion": 1}, "qi": 0, "spec": "Vit/Str Boost"}],
         "Blazewind Pill": [{"tier": "Heavenly", "ingredients": {"crimson flame mushroom": 2, "purple lightning orchid": 3, "wild spirit grass": 1}, "qi": 0, "spec": "Perm Spd/Str"}],
         "Soul Replenishing": [{"tier": "Heavenly", "ingredients": {"healing sunflower": 2, "red ginseng": 1, "ironbone grass": 2, "seven star flower": 1}, "qi": 0, "spec": "12% Lifespan (Perm)"}]
     }
 
 # -------------------------------
-# 3. APP STYLING & STATE
+# 3. APP STYLING & INIT
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
@@ -94,7 +148,7 @@ st.markdown("""<style>
     label { color: #f0f6fc !important; font-weight: 600 !important; }
     div[data-baseweb="input"] { background-color: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(88, 166, 255, 0.3) !important; border-radius: 8px !important; }
     .app-card { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(15px); border-radius: 15px; padding: 15px; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 15px; color: white; }
-    .pill-title { color: #58a6ff; font-size: 1.3rem; font-weight: bold; }
+    .pill-title { color: #58a6ff; font-size: 1.3rem; font-weight: bold; margin: 0; }
     .badge { display: inline-block; background: rgba(88, 166, 255, 0.1); color: #58a6ff; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; margin-top: 5px; border: 1px solid rgba(88, 166, 255, 0.2); }
     .total-box { margin-top: 12px; padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 10px; border: 1px dashed rgba(88, 166, 255, 0.2); }
 </style>""", unsafe_allow_html=True)
@@ -106,41 +160,53 @@ for h in all_herbs:
     if f"i_{h}" not in st.session_state: st.session_state[f"i_{h}"] = 0
 
 # -------------------------------
-# 4. MAIN INTERFACE
+# 4. MAIN INTERFACE TABS
 # -------------------------------
 tab1, tab2 = st.tabs(["🥣 Lab Dashboard", "🎒 Ingredients Chest"])
 
 with tab2:
     st.markdown("### 📸 Visual Decompiler")
     ss_file = st.file_uploader("Upload Inventory Screenshot", type=['png', 'jpg', 'jpeg'])
+    
     if ss_file:
-        if st.button("✨ Scan Image"):
-            with st.spinner("Decoding Spirit Herbs..."):
-                found = decompile_screenshot(ss_file, all_herbs)
+        if st.button("✨ Decompile Image"):
+            with st.spinner("Upscaling and Decoding Spirit Herbs..."):
+                found, raw_text = decompile_screenshot(ss_file, all_herbs)
+                
                 if found:
-                    for herb, qty in found.items(): st.session_state[f"i_{herb}"] = qty
-                    st.success(f"Detected {len(found)} herbs!")
+                    for herb, qty in found.items(): 
+                        st.session_state[f"i_{herb}"] = qty
+                    st.success(f"Successfully decoded {len(found)} herbs!")
                     st.rerun()
-                else: st.error("Reader failed. Ensure the screenshot is clear.")
+                else: 
+                    st.error("Reader failed to match herbs.")
+                
+                # DEBUG TOOL: Expand this to see what OCR extracted
+                with st.expander("🛠️ View Raw AI Data (Debug)"):
+                    st.write("This is exactly what the AI saw in the image:")
+                    st.write(raw_text)
 
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🧹 Clear All"):
+        if st.button("🧹 Clear All Stock"):
             for h in all_herbs: st.session_state[f"i_{h}"] = 0
             st.rerun()
-    with c2: handcrafted = st.toggle("✨ Handcrafted (3x)", value=False)
+    with c2: 
+        handcrafted = st.toggle("✨ Handcrafted (3x)", value=False)
     
     h_search = st.text_input("🔍 Manual Search/Edit...", "").lower()
     cols = st.columns(2)
     filtered = [h for h in all_herbs if h_search in h]
     for i, h in enumerate(filtered):
-        with cols[i % 2]: st.number_input(h.title(), min_value=0, key=f"i_{h}")
+        with cols[i % 2]: 
+            st.number_input(h.title(), min_value=0, key=f"i_{h}")
 
 with tab1:
     p_query = st.text_input("🔍 Live Search Recipes...", "").lower()
     inv = {h: st.session_state[f"i_{h}"] for h in all_herbs}
     craftable = []
+    
     for name, variants in db.items():
         for v in variants:
             possible = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
@@ -169,4 +235,5 @@ with tab1:
                 <div style="margin-top:10px;">{badges}</div>
                 <div class="total-box"><b>BATCH MATERIALS:</b><br>{totals}</div>
             </div>""", unsafe_allow_html=True)
-    else: st.info("No craftable items. Scan a screenshot or add ingredients manually.")
+    else: 
+        st.info("No craftable items. Scan a screenshot or add ingredients manually.")
