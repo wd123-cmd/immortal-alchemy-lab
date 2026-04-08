@@ -4,13 +4,13 @@ import numpy as np
 import easyocr
 from PIL import Image
 import difflib
+import re
 
 # -------------------------------
-# 1. ADVANCED DECOMPILER ENGINE
+# 1. HYPER-SENSITIVE DECOMPILER ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
-    # Cache the AI model so it only loads once
     return easyocr.Reader(['en'], gpu=False)
 
 def decompile_screenshot(image_file, herb_list):
@@ -20,13 +20,12 @@ def decompile_screenshot(image_file, herb_list):
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
     # --- 300% UPSCALING ---
-    # Blow the image up so the AI can clearly see the stylized game font
-    # No harsh thresholding masks—let the neural net do its job on the gray pixels
     img_cv = cv2.resize(img_cv, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
-    # Run OCR on the massive grayscale image
-    results = reader.readtext(gray)
+    # --- HYPER-SENSITIVE SCAN ---
+    # text_threshold and low_text are lowered so it stops deleting the "x12"
+    results = reader.readtext(gray, text_threshold=0.2, low_text=0.2)
     results.sort(key=lambda x: x[0][0][1]) # Sort top-to-bottom
 
     found_data = {}
@@ -51,7 +50,7 @@ def decompile_screenshot(image_file, herb_list):
                 num_y = (bbox[0][1] + bbox[2][1]) / 2
                 
                 combined_words = []
-                # Look ahead up to 10 blocks (since the 300% upscale creates more blocks)
+                # Look ahead up to 10 blocks to catch highly fragmented words
                 for j in range(1, 10): 
                     if i + j < len(results):
                         name_bbox = results[i+j][0]
@@ -68,27 +67,29 @@ def decompile_screenshot(image_file, herb_list):
                 
                 if not combined_words: continue
                 
-                # Stitch the words together (e.g., 'mopnlight' + 'jadalzar')
-                combined_str = "".join(combined_words).replace(" ", "")
+                # Stitch words and strip EVERYTHING except basic letters
+                combined_str = "".join(combined_words)
+                combined_str = re.sub(r'[^a-z]', '', combined_str)
+                
                 best_match = None
                 best_ratio = 0.0
                 
                 for herb in herb_list:
-                    clean_herb = herb.lower().replace(" ", "")
+                    clean_herb = re.sub(r'[^a-z]', '', herb.lower())
                     
                     if clean_herb in combined_str:
                         best_match = herb
                         best_ratio = 1.0
                         break
                         
-                    # Fuzzy match to catch "Bladz Bon Roor" = "Black Iron Root"
+                    # Fuzzy match to catch wild hallucinations like "kubouegtass"
                     ratio = difflib.SequenceMatcher(None, clean_herb, combined_str[:len(clean_herb)+4]).ratio()
                     if ratio > best_ratio:
                         best_ratio = ratio
                         best_match = herb
                 
-                # Extremely forgiving threshold (40%) to handle severe OCR hallucinations
-                if best_match and best_ratio > 0.40:
+                # Dropped to 35% confidence because of the severe OCR scrambling
+                if best_match and best_ratio > 0.35:
                     if best_match not in found_data or quantity > found_data[best_match]:
                         found_data[best_match] = quantity
             except: continue
@@ -195,7 +196,7 @@ with tab2:
     
     if ss_file:
         if st.button("✨ Decompile Image"):
-            with st.spinner("Upscaling and Decoding Spirit Herbs..."):
+            with st.spinner("Decoding Spirit Herbs..."):
                 found, raw_text = decompile_screenshot(ss_file, all_herbs)
                 
                 st.session_state['debug_log'] = raw_text
