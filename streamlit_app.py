@@ -7,23 +7,22 @@ import difflib
 import re
 
 # -------------------------------
-# 1. THE GOLDEN RATIO + COLOR MASK ENGINE
+# 1. THE INVERSE SILHOUETTE ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['en'], gpu=False)
 
 def get_herb_aliases(herb_name):
-    """Maps actual herb names to known OCR hallucinations."""
+    """Unified Hallucination Dictionary"""
     aliases = []
-    
     mapping = {
-        "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag", "hlcaling", "hedig", "heali4g", "heallig", "ealv"],
-        "black iron root": ["black", "ironroot", "ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "bledk", "koro", "koroo", "bled", "korooz", "ko", "rooz"],
-        "blue wave coral herb": ["blue", "wave", "coral", "ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "uallub", "qbal", "ualleb", "dallazz"],
-        "thousand year lotus": ["thousand", "lotus", "hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "iboutnd", "ycclas", "yac", "ibosseadd", "yatoud"],
-        "moonlight jade leaf": ["moonlight", "jadeleaf", "saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "meonligbt", "jadglca", "saal", "meuuligbt", "saglti"],
-        "ironbone grass": ["ironbone", "gtass", "iobge", "kuboue", "ouboue", "bonbone", "konbong", "iabssa", "gcass", "iabge"],
+        "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "suadlag", "hlcaling", "sannhg", "sunllower"],
+        "black iron root": ["black", "ironroot", "ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "bledk", "koroo", "koro", "iecat"],
+        "blue wave coral herb": ["blue", "wave", "coral", "ballaz", "coaileb", "ualheb", "blugwav", "uallub", "qbal", "dallazz", "sazglxb"],
+        "thousand year lotus": ["thousand", "lotus", "hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "iboutnd", "ycclas", "yatoud", "yac"],
+        "moonlight jade leaf": ["moonlight", "jadeleaf", "saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "meonligbt", "jadglca", "saal", "saglti", "8na3z"],
+        "ironbone grass": ["ironbone", "gtass", "iobge", "kuboue", "ouboue", "bonbone", "konbong", "iabssa", "gcass", "iabge", "laza", "otz"],
         "nine suns flame grass": ["ninesuns", "flamegrass"],
         "purple lightning orchid": ["purple", "orchid", "lightning", "bistadattg", "ruplg", "lipnnidg", "eunte"],
         "red ginseng": ["ginseng", "red"],
@@ -39,13 +38,10 @@ def get_herb_aliases(herb_name):
         "azure serpent grass": ["azure", "serpent"],
         "wild bitter grass": ["wildbitter", "bittergrass"]
     }
-    
     if herb_name.lower() in mapping:
         aliases.extend(mapping[herb_name.lower()])
-        
     for w in herb_name.lower().split():
         if len(w) > 3: aliases.append(w)
-        
     return list(set(aliases))
 
 def decompile_screenshot(image_file, herb_list):
@@ -54,23 +50,23 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
+    # ⚡ SMART SCALING
     h, w = img_cv.shape[:2]
+    scale = 1000 / w
+    img_cv = cv2.resize(img_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
     
-    # --- ⚡ STRICT 800px WIDTH SCALING (Guarantees Speed) ---
-    scale = 800 / w
-    img_cv = cv2.resize(img_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC)
-    
-    # --- 🛑 THE NEW MAGIC: PURE TEXT ISOLATION ---
+    # 🧪 ADVANCED PRE-PROCESSING (Silhouette Edge Detection)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
+    kernel = np.ones((2,2), np.uint8)
+    # Morphological gradient helps 'thicken' the thin white game font
+    gradient = cv2.morphologyEx(gray, cv2.MORPH_GRADIENT, kernel)
+    # Otsu's thresholding automatically finds the best contrast
+    _, processed = cv2.threshold(gradient, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     
-    # This mathematically deletes anything that isn't bright white (removes backgrounds/wood grain)
-    _, pure_text = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+    # Run OCR on the Edge-Detected image
+    results = reader.readtext(processed, text_threshold=0.3)
     
-    # --- 🦉 RESTORED NIGHT VISION (Guarantees it sees the numbers) ---
-    results = reader.readtext(pure_text, text_threshold=0.2, low_text=0.2)
-    
-    curr_h, curr_w = pure_text.shape[:2]
-    
+    curr_h, curr_w = processed.shape[:2]
     numbers_found = []
     herbs_found = []
     raw_text_seen = []
@@ -79,69 +75,53 @@ def decompile_screenshot(image_file, herb_list):
         raw_text_seen.append(text)
         clean = text.lower().replace(' ', '')
         
-        # Intercept UI glitches
-        clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12').replace('x2z', 'x12')
-        clean = clean.replace('xi2', 'x12').replace('x|2', 'x12').replace('xl2', 'x12').replace('x22', 'x12')
+        # Intercept double-digit glitches
+        if clean in ['22', 'z2', 'x2z']: clean = 'x2'
+        if clean in ['12', 'xz', 'xlz', 'xiz']: clean = 'x12'
         
-        if clean == '22': clean = 'x2'
-        if clean == '44': clean = 'x4'
-        if clean == '55': clean = 'x5'
-        
-        clean = clean.replace('i', '1').replace('|', '1').replace('l', '1')
-        clean = clean.replace('s', '5').replace('o', '0').replace('z', '2')
+        clean = clean.replace('i', '1').replace('|', '1').replace('l', '1').replace('s', '5').replace('o', '0')
         
         cx = (bbox[0][0] + bbox[1][0]) / 2
         cy = (bbox[0][1] + bbox[2][1]) / 2
         
-        # Is it a number?
         if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
             nums = ''.join(filter(str.isdigit, clean))
             if nums:
                 numbers_found.append({'qty': int(nums), 'x': cx, 'y': cy})
         else:
-            # Is it an herb?
-            word = re.sub(r'[^a-z]', '', text.lower())
+            word = re.sub(r'[^a-z0-9]', '', text.lower())
             if len(word) >= 3:
                 matched_herb = None
                 for herb in herb_list:
                     aliases = get_herb_aliases(herb)
-                    if word in aliases:
+                    if any(alias in word for alias in aliases):
                         matched_herb = herb
                         break
                     for alias in aliases:
-                        if len(alias) > 3 and difflib.SequenceMatcher(None, word, alias).ratio() > 0.75:
+                        if len(alias) > 3 and difflib.SequenceMatcher(None, word, alias).ratio() > 0.70:
                             matched_herb = herb
                             break
                     if matched_herb: break
-                
                 if matched_herb:
                     herbs_found.append({'herb': matched_herb, 'x': cx, 'y': cy})
 
-    # PHASE 2: Relative Geometry Matcher (Crop-Proof)
+    # PHASE 2: Geometric Mapping
     found_data = {}
-    
-    max_y_dist = curr_h * 0.3  # Herb name won't be further than 30% down
-    max_x_dist = curr_w * 0.15 # Herb name won't be further than 15% sideways
-    
     for h_frag in herbs_found:
         best_num = None
         min_dist = float('inf')
-        
         for num in numbers_found:
             y_diff = h_frag['y'] - num['y']
             x_diff = abs(h_frag['x'] - num['x'])
-            
-            if 0 < y_diff < max_y_dist and x_diff < max_x_dist:
+            if 0 < y_diff < (curr_h * 0.25) and x_diff < (curr_w * 0.12):
                 dist = (x_diff**2 + y_diff**2)**0.5
                 if dist < min_dist:
                     min_dist = dist
                     best_num = num
-                    
         if best_num:
             herb = h_frag['herb']
-            qty = best_num['qty']
-            if herb not in found_data or qty > found_data[herb]:
-                found_data[herb] = qty
+            if herb not in found_data or best_num['qty'] > found_data[herb]:
+                found_data[herb] = best_num['qty']
                 
     return found_data, raw_text_seen
 
@@ -198,9 +178,6 @@ for h in all_herbs:
 if 'debug_log' not in st.session_state:
     st.session_state['debug_log'] = []
 
-# -------------------------------
-# 4. MAIN INTERFACE TABS
-# -------------------------------
 tab1, tab2 = st.tabs(["🥣 Lab Dashboard", "🎒 Ingredients Chest"])
 
 with tab2:
@@ -209,37 +186,32 @@ with tab2:
     
     if ss_file:
         if st.button("✨ Decompile Image"):
-            with st.spinner("Applying Color Masks & Decoding Herbs..."):
+            with st.spinner("Decoding Herbs..."):
                 found, raw_text = decompile_screenshot(ss_file, all_herbs)
-                
                 st.session_state['debug_log'] = raw_text
-                
                 if found:
                     for herb, qty in found.items(): 
                         st.session_state[f"i_{herb}"] += qty
-                        
-                    st.success(f"Successfully added {len(found)} herbs to your chest!")
+                    st.success(f"Added {len(found)} herbs to chest!")
                     st.rerun()
                 else: 
-                    st.error("Reader failed to match herbs. Check Debug data below.")
+                    st.error("No herbs detected. Try a closer crop of the selection window.")
 
     if st.session_state['debug_log']:
         with st.expander("🛠️ View Raw AI Data (Debug)"):
-            st.write("This is exactly what the AI saw in the last scan:")
             st.write(st.session_state['debug_log'])
 
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
         if st.button("🧹 Clear All Stock"):
-            for h in all_herbs: 
-                st.session_state[f"i_{h}"] = 0
+            for h in all_herbs: st.session_state[f"i_{h}"] = 0
             st.session_state['debug_log'] = []
             st.rerun()
     with c2: 
         handcrafted = st.toggle("✨ Handcrafted (3x)", value=False)
     
-    h_search = st.text_input("🔍 Manual Search/Edit...", "").lower()
+    h_search = st.text_input("🔍 Search Inventory...", "").lower()
     cols = st.columns(2)
     filtered = [h for h in all_herbs if h_search in h]
     for i, h in enumerate(filtered):
@@ -267,10 +239,8 @@ with tab1:
             if p['qi'] > 0: tags += f'<span style="background:rgba(63,185,80,0.2); color:#3fb950; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">+{p["qi"]}% Qi</span>'
             if p['spec']:
                 for s in p['spec'].split('/'): tags += f'<span style="background:rgba(187,128,255,0.2); color:#d2a8ff; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">{s.strip()}</span>'
-
             badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
             totals = "".join([f'<div style="font-size: 0.8rem; margin-bottom:2px;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
-            
             st.markdown(f"""<div class="app-card">
                 <div style="display:flex; justify-content:space-between;">
                     <div><div style="color:#8b949e; font-size:0.7rem;">{p['tier']}</div><div class="pill-title">{p['name']}</div><div style="margin-top:4px;">{tags}</div></div>
