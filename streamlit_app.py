@@ -5,7 +5,7 @@ import easyocr
 from PIL import Image
 
 # -------------------------------
-# 1. MULTI-STAGE DECOMPILER ENGINE
+# 1. PIXEL-PERFECT DECOMPILER ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
@@ -17,51 +17,49 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # --- MULTI-STAGE PRE-PROCESSING ---
-    # Filter A: Original Color
-    # Filter B: Grayscale + High Contrast
+    # --- PRE-PROCESSING ---
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-    contrast = cv2.convertScaleAbs(gray, alpha=2.0, beta=0)
-    # Filter C: Dilation (Thickens the thin 'x12' font)
-    kernel = np.ones((2,2), np.uint8)
-    dilated = cv2.dilate(contrast, kernel, iterations=1)
+    # High-threshold to isolate only the white text from the dark background
+    _, thresh = cv2.threshold(gray, 210, 255, cv2.THRESH_BINARY)
     
-    # Run OCR on all versions to maximize detection chances
-    results = reader.readtext(img_cv) + reader.readtext(contrast) + reader.readtext(dilated)
-    
-    # Sort results by vertical position (Top to Bottom)
+    # Scan both original and processed for maximum coverage
+    results = reader.readtext(thresh) + reader.readtext(img_cv)
+    # Sort top-to-bottom
     results.sort(key=lambda x: x[0][0][1])
 
     found_data = {}
     for i, (bbox, text, prob) in enumerate(results):
-        # CLEAN & CORRECT FONT ERRORS
-        clean = text.lower().replace(' ', '')
-        clean = clean.replace('i', '1').replace('|', '1').replace('l', '1').replace('[', '1')
-        clean = clean.replace('s', '5').replace('o', '0').replace('q', '9').replace('z', '2').replace('g', '9')
+        # FONT CORRECTION
+        clean = text.lower().replace(' ', '').replace('i', '1').replace('s', '5').replace('o', '0')
         
-        # Identify Quantity (looking for numbers)
-        num_str = ''.join(filter(str.isdigit, clean))
-        if num_str and len(num_str) < 5:
+        # Check for Quantity (e.g., x12, 12)
+        if any(char.isdigit() for char in clean) and len(clean) < 6:
             try:
+                num_str = ''.join(filter(str.isdigit, clean))
+                if not num_str: continue
                 quantity = int(num_str)
                 
-                # SEARCH NEARBY: Look at 5 text blocks around the number
-                for j in range(-2, 5): 
-                    if 0 <= i + j < len(results):
+                # Get the horizontal center of the number
+                num_center_x = (bbox[0][0] + bbox[1][0]) / 2
+                
+                # SEARCH BELOW: Look for a name aligned horizontally with this number
+                for j in range(1, 6):
+                    if i + j < len(results):
                         potential_name = results[i+j][1].lower().strip()
-                        for herb in herb_list:
-                            # Fuzzy check: If herb name is inside the read text or vice versa
-                            if herb.lower() in potential_name or potential_name in herb.lower():
-                                # Only update if we found a higher quantity (prevents double-counting)
-                                if herb not in found_data or quantity > found_data[herb]:
+                        name_bbox = results[i+j][0]
+                        name_center_x = (name_bbox[0][0] + name_bbox[1][0]) / 2
+                        
+                        # Only pair if the name is vertically under the number (within 50px offset)
+                        if abs(num_center_x - name_center_x) < 50:
+                            for herb in herb_list:
+                                if herb.lower() in potential_name or potential_name in herb.lower():
                                     found_data[herb] = quantity
-                                break
+                                    break
             except: continue
-            
     return found_data
 
 # -------------------------------
-# 2. FULL RECIPE DATABASE
+# 2. COMPLETE RECIPE DATABASE
 # -------------------------------
 def get_db():
     return {
@@ -96,7 +94,7 @@ st.markdown("""<style>
     label { color: #f0f6fc !important; font-weight: 600 !important; }
     div[data-baseweb="input"] { background-color: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(88, 166, 255, 0.3) !important; border-radius: 8px !important; }
     .app-card { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(15px); border-radius: 15px; padding: 15px; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 15px; color: white; }
-    .pill-title { color: #58a6ff; font-size: 1.3rem; font-weight: bold; margin: 0; }
+    .pill-title { color: #58a6ff; font-size: 1.3rem; font-weight: bold; }
     .badge { display: inline-block; background: rgba(88, 166, 255, 0.1); color: #58a6ff; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; margin-top: 5px; border: 1px solid rgba(88, 166, 255, 0.2); }
     .total-box { margin-top: 12px; padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 10px; border: 1px dashed rgba(88, 166, 255, 0.2); }
 </style>""", unsafe_allow_html=True)
@@ -113,22 +111,22 @@ for h in all_herbs:
 tab1, tab2 = st.tabs(["🥣 Lab Dashboard", "🎒 Ingredients Chest"])
 
 with tab2:
-    st.markdown("### 📸 Visual Reader")
+    st.markdown("### 📸 Visual Decompiler")
     ss_file = st.file_uploader("Upload Inventory Screenshot", type=['png', 'jpg', 'jpeg'])
     if ss_file:
-        if st.button("✨ Decompile Image"):
+        if st.button("✨ Scan Image"):
             with st.spinner("Decoding Spirit Herbs..."):
                 found = decompile_screenshot(ss_file, all_herbs)
                 if found:
                     for herb, qty in found.items(): st.session_state[f"i_{herb}"] = qty
-                    st.success(f"Successfully decoded {len(found)} herbs!")
+                    st.success(f"Detected {len(found)} herbs!")
                     st.rerun()
-                else: st.error("Reader failed. Make sure numbers and names are visible.")
+                else: st.error("Reader failed. Ensure the screenshot is clear.")
 
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🧹 Clear All Stock"):
+        if st.button("🧹 Clear All"):
             for h in all_herbs: st.session_state[f"i_{h}"] = 0
             st.rerun()
     with c2: handcrafted = st.toggle("✨ Handcrafted (3x)", value=False)
@@ -171,4 +169,4 @@ with tab1:
                 <div style="margin-top:10px;">{badges}</div>
                 <div class="total-box"><b>BATCH MATERIALS:</b><br>{totals}</div>
             </div>""", unsafe_allow_html=True)
-    else: st.info("No craftable items. Scan a screenshot or add ingredients in the next tab.")
+    else: st.info("No craftable items. Scan a screenshot or add ingredients manually.")
