@@ -7,7 +7,7 @@ import difflib
 import re
 
 # -------------------------------
-# 1. THE GOLDEN RATIO ENGINE (Speed + Accuracy)
+# 1. DYNAMIC RAYCASTER ENGINE (Fast & Accurate)
 # -------------------------------
 @st.cache_resource
 def load_ocr():
@@ -18,24 +18,24 @@ def get_herb_aliases(herb_name):
     aliases = []
     
     mapping = {
-        "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag", "hlcaling", "hedig", "heali4g"],
-        "black iron root": ["black", "ironroot", "ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "bledk", "koro", "koroo"],
-        "blue wave coral herb": ["blue", "wave", "coral", "ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "uallub", "qbal", "ualleb"],
-        "thousand year lotus": ["thousand", "lotus", "hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "iboutnd", "ycclas", "yac", "ibosseadd"],
-        "moonlight jade leaf": ["moonlight", "jadeleaf", "saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "meonligbt", "jadglca", "saal", "meuuligbt"],
-        "ironbone grass": ["ironbone", "gtass", "iobge", "kuboue", "ouboue", "bonbone", "konbong", "iabssa", "gcass"],
+        "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag", "hlcaling", "hedig", "heali4g", "heallig", "ealv"],
+        "black iron root": ["black", "ironroot", "ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "bledk", "koro", "koroo", "bled", "korooz", "ko", "rooz"],
+        "blue wave coral herb": ["blue", "wave", "coral", "ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "uallub", "qbal", "ualleb", "dallazz"],
+        "thousand year lotus": ["thousand", "lotus", "hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "iboutnd", "ycclas", "yac", "ibosseadd", "yatoud"],
+        "moonlight jade leaf": ["moonlight", "jadeleaf", "saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "meonligbt", "jadglca", "saal", "meuuligbt", "saglti"],
+        "ironbone grass": ["ironbone", "gtass", "iobge", "kuboue", "ouboue", "bonbone", "konbong", "iabssa", "gcass", "iabge"],
         "nine suns flame grass": ["ninesuns", "flamegrass"],
-        "purple lightning orchid": ["purple", "orchid", "lightning", "bistadattg", "ruplg", "lipnnidg"],
+        "purple lightning orchid": ["purple", "orchid", "lightning", "bistadattg", "ruplg", "lipnnidg", "eunte"],
         "red ginseng": ["ginseng", "red"],
         "bitter jade grass": ["bitter", "jadegrass"],
-        "cloud mist herb": ["cloud", "mist", "mistherb", "candmse", "hedb"],
+        "cloud mist herb": ["cloud", "mist", "mistherb", "candmse", "hedb", "dudsb", "hub"],
         "spirit spring herb": ["spiritspring", "springherb"],
         "dandelion of qi": ["dandelion", "ofqi"],
-        "seven star flower": ["sevenstar", "starflower", "setcnsaac", "flower", "sevez", "sur"],
+        "seven star flower": ["sevenstar", "starflower", "setcnsaac", "flower", "sevez", "sur", "8lst", "fte"],
         "starlight dew herb": ["starlight", "dewherb"],
         "heavenly spirit vine": ["heavenly", "spiritvine"],
         "mountain green herb": ["mountain", "greenherb"],
-        "wild spirit grass": ["wildspirit", "wild", "budspide", "gas3", "wnika", "spinft"],
+        "wild spirit grass": ["wildspirit", "wild", "budspide", "gas3", "wnika", "spinft", "eapnn"],
         "azure serpent grass": ["azure", "serpent"],
         "wild bitter grass": ["wildbitter", "bittergrass"]
     }
@@ -75,9 +75,15 @@ def decompile_screenshot(image_file, herb_list):
         raw_text_seen.append(text)
         clean = text.lower().replace(' ', '')
         
-        # Intercept UI glitches
+        # --- 🚨 THE DOUBLE-DIGIT NUMBER INTERCEPTOR 🚨 ---
         clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12').replace('x2z', 'x12')
-        clean = clean.replace('xi2', 'x12').replace('x|2', 'x12').replace('xl2', 'x12')
+        clean = clean.replace('xi2', 'x12').replace('x|2', 'x12').replace('xl2', 'x12').replace('x22', 'x12')
+        
+        # If the 'x' was misread as a duplicate number
+        if clean == '22': clean = 'x2'
+        if clean == '44': clean = 'x4'
+        if clean == '55': clean = 'x5'
+        
         clean = clean.replace('i', '1').replace('|', '1').replace('l', '1')
         clean = clean.replace('s', '5').replace('o', '0').replace('z', '2')
         
@@ -111,7 +117,6 @@ def decompile_screenshot(image_file, herb_list):
     # PHASE 2: Relative Geometry Matcher (Crop-Proof)
     found_data = {}
     
-    # Dynamic search boundaries based on image size (stops cross-column contamination)
     max_y_dist = curr_h * 0.3  # Herb name won't be further than 30% down
     max_x_dist = curr_w * 0.15 # Herb name won't be further than 15% sideways
     
@@ -119,7 +124,6 @@ def decompile_screenshot(image_file, herb_list):
         best_num = None
         min_dist = float('inf')
         
-        # Find the number closest to this word that is situated ABOVE the word
         for num in numbers_found:
             y_diff = h_frag['y'] - num['y']
             x_diff = abs(h_frag['x'] - num['x'])
@@ -130,7 +134,6 @@ def decompile_screenshot(image_file, herb_list):
                     min_dist = dist
                     best_num = num
                     
-        # Lock in the highest quantity found for that herb
         if best_num:
             herb = h_frag['herb']
             qty = best_num['qty']
