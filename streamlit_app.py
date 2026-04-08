@@ -3,13 +3,13 @@ import cv2
 import numpy as np
 import easyocr
 from PIL import Image
+import difflib  # NEW: Built-in library for advanced string matching
 
 # -------------------------------
 # 1. ADVANCED DECOMPILER ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
-    # Load model once to save server RAM
     return easyocr.Reader(['en'], gpu=False)
 
 def decompile_screenshot(image_file, herb_list):
@@ -19,57 +19,78 @@ def decompile_screenshot(image_file, herb_list):
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
     # --- UPSCALING PRE-PROCESSING ---
-    # Resize to 200% to make the stylised game font thicker and clearer
     img_cv = cv2.resize(img_cv, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-    
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-    # Mild contrast boost instead of harsh thresholding
     contrast = cv2.convertScaleAbs(gray, alpha=1.3, beta=0)
     
-    # Scan the processed image
     results = reader.readtext(contrast)
-    
+    results.sort(key=lambda x: x[0][0][1])
+
     found_data = {}
     raw_text_seen = []
     
     for i, (bbox, text, prob) in enumerate(results):
         raw_text_seen.append(text)
         
-        # FONT CORRECTION: Fix common game font OCR mistakes
-        clean = text.lower().replace(' ', '')
-        clean = clean.replace('i', '1').replace('|', '1').replace('s', '5').replace('o', '0')
+        # NUMBER CLEANING
+        clean = text.lower().replace(' ', '').replace('i', '1').replace('|', '1').replace('s', '5').replace('o', '0')
         
-        # Check if text is a quantity (x12, 12, etc.)
+        # If we found a quantity...
         if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
             try:
                 num_str = ''.join(filter(str.isdigit, clean))
                 if not num_str: continue
                 quantity = int(num_str)
                 
-                # Get Center Coordinates of the Number Box
                 num_x = (bbox[0][0] + bbox[1][0]) / 2
                 num_y = (bbox[0][1] + bbox[2][1]) / 2
                 
-                # STRICT ALIGNMENT SEARCH: Look for a name directly below this number
-                for j, (name_bbox, name_text, name_prob) in enumerate(results):
-                    if i == j: continue
+                # --- NEW ALIGNMENT LOGIC ---
+                # Gather ALL text blocks directly under this number into one long string
+                combined_words = []
+                for j in range(1, 8): 
+                    if i + j < len(results):
+                        name_bbox = results[i+j][0]
+                        name_x = (name_bbox[0][0] + name_bbox[1][0]) / 2
+                        name_y = (name_bbox[0][1] + name_bbox[2][1]) / 2
+                        
+                        y_diff = name_y - num_y
+                        x_diff = abs(name_x - num_x)
+                        
+                        # If it is in the same column and below the number
+                        if 0 < y_diff < 250 and x_diff < 150: 
+                            # Convert accidental numbers back to letters for the name check
+                            word = results[i+j][1].lower().replace('1', 'l').replace('5', 's').replace('0', 'o')
+                            combined_words.append(word)
+                
+                if not combined_words: continue
+                
+                # Stitch the words together (e.g. "ironbone" + "grass" = "ironbonegrass")
+                combined_str = "".join(combined_words).replace(" ", "")
+                
+                best_match = None
+                best_ratio = 0.0
+                
+                for herb in herb_list:
+                    clean_herb = herb.lower().replace(" ", "")
                     
-                    name_x = (name_bbox[0][0] + name_bbox[1][0]) / 2
-                    name_y = (name_bbox[0][1] + name_bbox[2][1]) / 2
-                    
-                    y_diff = name_y - num_y
-                    x_diff = abs(name_x - num_x)
-                    
-                    # Name must be vertically below (0 to 200px) and horizontally aligned (< 150px offset)
-                    if 0 < y_diff < 200 and x_diff < 150: 
-                        potential_name = name_text.lower().strip()
-                        for herb in herb_list:
-                            # Fuzzy matching
-                            if herb.lower() in potential_name or potential_name in herb.lower():
-                                # Prevent duplicates/overwrites unless quantity is higher
-                                if herb not in found_data or quantity > found_data[herb]:
-                                    found_data[herb] = quantity
-                                break
+                    # 1. Perfect Substring Match (e.g. "ironbonegrass" is in "ironbonegrassmoonlight")
+                    if clean_herb in combined_str:
+                        best_match = herb
+                        best_ratio = 1.0
+                        break
+                        
+                    # 2. Fuzzy Match (In case OCR misspelled a letter)
+                    # We compare the herb against the first part of our stitched string
+                    ratio = difflib.SequenceMatcher(None, clean_herb, combined_str[:len(clean_herb)+2]).ratio()
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best_match = herb
+                
+                # Only accept the match if it's over 75% confident
+                if best_match and best_ratio > 0.75:
+                    if best_match not in found_data or quantity > found_data[best_match]:
+                        found_data[best_match] = quantity
             except: continue
             
     return found_data, raw_text_seen
@@ -181,7 +202,6 @@ with tab2:
                 else: 
                     st.error("Reader failed to match herbs.")
                 
-                # DEBUG TOOL: Expand this to see what OCR extracted
                 with st.expander("🛠️ View Raw AI Data (Debug)"):
                     st.write("This is exactly what the AI saw in the image:")
                     st.write(raw_text)
