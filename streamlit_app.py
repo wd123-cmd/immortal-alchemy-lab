@@ -7,7 +7,7 @@ import difflib
 import re
 
 # -------------------------------
-# 1. NORMALIZED RAYCASTER ENGINE
+# 1. DYNAMIC RAYCASTER ENGINE (Fast & Accurate)
 # -------------------------------
 @st.cache_resource
 def load_ocr():
@@ -18,12 +18,12 @@ def get_herb_aliases(herb_name):
     aliases = []
     
     mapping = {
-        "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag"],
-        "black iron root": ["black", "ironroot", "ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "bledk"],
-        "blue wave coral herb": ["blue", "wave", "coral", "ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "uallub"],
-        "thousand year lotus": ["thousand", "lotus", "hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "iboutnd", "ycclas"],
-        "moonlight jade leaf": ["moonlight", "jadeleaf", "saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "meonligbt", "jadglca"],
-        "ironbone grass": ["ironbone", "gtass", "iobge", "kuboue", "ouboue", "bonbone", "konbong"],
+        "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag", "hlcaling"],
+        "black iron root": ["black", "ironroot", "ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "bledk", "koro"],
+        "blue wave coral herb": ["blue", "wave", "coral", "ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "uallub", "qbal"],
+        "thousand year lotus": ["thousand", "lotus", "hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "iboutnd", "ycclas", "yac"],
+        "moonlight jade leaf": ["moonlight", "jadeleaf", "saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "meonligbt", "jadglca", "saal"],
+        "ironbone grass": ["ironbone", "gtass", "iobge", "kuboue", "ouboue", "bonbone", "konbong", "iabssa"],
         "nine suns flame grass": ["ninesuns", "flamegrass"],
         "purple lightning orchid": ["purple", "orchid", "lightning", "bistadattg"],
         "red ginseng": ["ginseng", "red"],
@@ -43,6 +43,9 @@ def get_herb_aliases(herb_name):
     if herb_name.lower() in mapping:
         aliases.extend(mapping[herb_name.lower()])
         
+    for w in herb_name.lower().split():
+        if len(w) > 3: aliases.append(w)
+        
     return list(set(aliases))
 
 def decompile_screenshot(image_file, herb_list):
@@ -51,44 +54,51 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # --- ⚡ THE SPEED & ACCURACY NORMALIZER ---
-    # Forces every image to be exactly 800px tall.
-    # Stops full-screens from taking forever, and stops crops from failing the geometry math!
-    height, width = img_cv.shape[:2]
-    target_height = 800
-    scale = target_height / height
-    img_cv = cv2.resize(img_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+    h, w = img_cv.shape[:2]
     
+    # --- ⚡ SMART SCALING (Fixes Speed & Ram Crashes) ---
+    # Shrink massive images to save CPU time, upscale tiny crops to preserve readability
+    if w > 1200:
+        scale = 1200 / w
+        img_cv = cv2.resize(img_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    elif w < 600:
+        scale = 800 / w
+        img_cv = cv2.resize(img_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
-    results = reader.readtext(gray, text_threshold=0.2, low_text=0.2)
+    # Removed hyper-sensitivity so it stops trying to read the wood grain!
+    results = reader.readtext(gray)
+    
+    # Store dynamic dimensions for relative geometry
+    curr_h, curr_w = gray.shape[:2]
     
     numbers_found = []
     herbs_found = []
     raw_text_seen = []
     
     # PHASE 1: Identify all Coordinates
-    for i, (bbox, text, prob) in enumerate(results):
+    for bbox, text, prob in results:
         raw_text_seen.append(text)
         clean = text.lower().replace(' ', '')
         
         # Intercept UI glitches
-        clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12')
+        clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12').replace('x2z', 'x12')
         clean = clean.replace('i', '1').replace('|', '1').replace('l', '1')
         clean = clean.replace('s', '5').replace('o', '0').replace('z', '2')
         
         cx = (bbox[0][0] + bbox[1][0]) / 2
         cy = (bbox[0][1] + bbox[2][1]) / 2
         
+        # Is it a number?
         if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
-            try:
-                num_str = ''.join(filter(str.isdigit, clean))
-                if num_str:
-                    numbers_found.append({'qty': int(num_str), 'x': cx, 'y': cy})
-            except: pass
+            nums = ''.join(filter(str.isdigit, clean))
+            if nums:
+                numbers_found.append({'qty': int(nums), 'x': cx, 'y': cy})
         else:
+            # Is it an herb?
             word = re.sub(r'[^a-z]', '', text.lower())
-            if len(word) > 2:
+            if len(word) >= 3:
                 matched_herb = None
                 for herb in herb_list:
                     aliases = get_herb_aliases(herb)
@@ -96,7 +106,7 @@ def decompile_screenshot(image_file, herb_list):
                         matched_herb = herb
                         break
                     for alias in aliases:
-                        if len(alias) > 4 and difflib.SequenceMatcher(None, word, alias).ratio() > 0.80:
+                        if len(alias) > 3 and difflib.SequenceMatcher(None, word, alias).ratio() > 0.75:
                             matched_herb = herb
                             break
                     if matched_herb: break
@@ -104,18 +114,34 @@ def decompile_screenshot(image_file, herb_list):
                 if matched_herb:
                     herbs_found.append({'herb': matched_herb, 'x': cx, 'y': cy})
 
-    # PHASE 2: Normalized Vertical Raycasting
+    # PHASE 2: Relative Geometry Matcher (Crop-Proof)
     found_data = {}
-    for num in numbers_found:
-        # Because the image is ALWAYS 800px tall now, 150px down and 100px wide is universally perfect.
-        valid_herbs = [h for h in herbs_found if 0 < (h['y'] - num['y']) < 150 and abs(h['x'] - num['x']) < 100]
+    
+    # Dynamic search boundaries based on image size (stops cross-column contamination)
+    max_y_dist = curr_h * 0.3  # Herb name won't be further than 30% down
+    max_x_dist = curr_w * 0.15 # Herb name won't be further than 15% sideways
+    
+    for h_frag in herbs_found:
+        best_num = None
+        min_dist = float('inf')
         
-        if valid_herbs:
-            valid_herbs.sort(key=lambda h: h['y'] - num['y'])
-            best_herb = valid_herbs[0]['herb']
+        # Find the number closest to this word that is situated ABOVE the word
+        for num in numbers_found:
+            y_diff = h_frag['y'] - num['y']
+            x_diff = abs(h_frag['x'] - num['x'])
             
-            if best_herb not in found_data or num['qty'] > found_data[best_herb]:
-                found_data[best_herb] = num['qty']
+            if 0 < y_diff < max_y_dist and x_diff < max_x_dist:
+                dist = (x_diff**2 + y_diff**2)**0.5
+                if dist < min_dist:
+                    min_dist = dist
+                    best_num = num
+                    
+        # Lock in the highest quantity found for that herb
+        if best_num:
+            herb = h_frag['herb']
+            qty = best_num['qty']
+            if herb not in found_data or qty > found_data[herb]:
+                found_data[herb] = qty
                 
     return found_data, raw_text_seen
 
