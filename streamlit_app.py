@@ -7,7 +7,7 @@ import difflib
 import re
 
 # -------------------------------
-# 1. DYNAMIC RAYCASTER ENGINE (Fast & Accurate)
+# 1. THE GOLDEN RATIO ENGINE (Speed + Accuracy)
 # -------------------------------
 @st.cache_resource
 def load_ocr():
@@ -18,24 +18,24 @@ def get_herb_aliases(herb_name):
     aliases = []
     
     mapping = {
-        "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag", "hlcaling"],
-        "black iron root": ["black", "ironroot", "ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "bledk", "koro"],
-        "blue wave coral herb": ["blue", "wave", "coral", "ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "uallub", "qbal"],
-        "thousand year lotus": ["thousand", "lotus", "hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "iboutnd", "ycclas", "yac"],
-        "moonlight jade leaf": ["moonlight", "jadeleaf", "saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "meonligbt", "jadglca", "saal"],
-        "ironbone grass": ["ironbone", "gtass", "iobge", "kuboue", "ouboue", "bonbone", "konbong", "iabssa"],
+        "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag", "hlcaling", "hedig", "heali4g"],
+        "black iron root": ["black", "ironroot", "ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "bledk", "koro", "koroo"],
+        "blue wave coral herb": ["blue", "wave", "coral", "ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "uallub", "qbal", "ualleb"],
+        "thousand year lotus": ["thousand", "lotus", "hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "iboutnd", "ycclas", "yac", "ibosseadd"],
+        "moonlight jade leaf": ["moonlight", "jadeleaf", "saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "meonligbt", "jadglca", "saal", "meuuligbt"],
+        "ironbone grass": ["ironbone", "gtass", "iobge", "kuboue", "ouboue", "bonbone", "konbong", "iabssa", "gcass"],
         "nine suns flame grass": ["ninesuns", "flamegrass"],
-        "purple lightning orchid": ["purple", "orchid", "lightning", "bistadattg"],
+        "purple lightning orchid": ["purple", "orchid", "lightning", "bistadattg", "ruplg", "lipnnidg"],
         "red ginseng": ["ginseng", "red"],
         "bitter jade grass": ["bitter", "jadegrass"],
         "cloud mist herb": ["cloud", "mist", "mistherb", "candmse", "hedb"],
         "spirit spring herb": ["spiritspring", "springherb"],
         "dandelion of qi": ["dandelion", "ofqi"],
-        "seven star flower": ["sevenstar", "starflower", "setcnsaac", "flower"],
+        "seven star flower": ["sevenstar", "starflower", "setcnsaac", "flower", "sevez", "sur"],
         "starlight dew herb": ["starlight", "dewherb"],
         "heavenly spirit vine": ["heavenly", "spiritvine"],
         "mountain green herb": ["mountain", "greenherb"],
-        "wild spirit grass": ["wildspirit", "wild", "budspide", "gas3"],
+        "wild spirit grass": ["wildspirit", "wild", "budspide", "gas3", "wnika", "spinft"],
         "azure serpent grass": ["azure", "serpent"],
         "wild bitter grass": ["wildbitter", "bittergrass"]
     }
@@ -56,34 +56,28 @@ def decompile_screenshot(image_file, herb_list):
     
     h, w = img_cv.shape[:2]
     
-    # --- ⚡ SMART SCALING (Fixes Speed & Ram Crashes) ---
-    # Shrink massive images to save CPU time, upscale tiny crops to preserve readability
-    if w > 1200:
-        scale = 1200 / w
-        img_cv = cv2.resize(img_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-    elif w < 600:
-        scale = 800 / w
-        img_cv = cv2.resize(img_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-        
+    # --- ⚡ STRICT 800px WIDTH SCALING (Guarantees Speed) ---
+    scale = 800 / w
+    img_cv = cv2.resize(img_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC)
+    
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
-    # Removed hyper-sensitivity so it stops trying to read the wood grain!
-    results = reader.readtext(gray)
+    # --- 🦉 RESTORED NIGHT VISION (Guarantees it sees the numbers) ---
+    results = reader.readtext(gray, text_threshold=0.2, low_text=0.2)
     
-    # Store dynamic dimensions for relative geometry
     curr_h, curr_w = gray.shape[:2]
     
     numbers_found = []
     herbs_found = []
     raw_text_seen = []
     
-    # PHASE 1: Identify all Coordinates
     for bbox, text, prob in results:
         raw_text_seen.append(text)
         clean = text.lower().replace(' ', '')
         
         # Intercept UI glitches
         clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12').replace('x2z', 'x12')
+        clean = clean.replace('xi2', 'x12').replace('x|2', 'x12').replace('xl2', 'x12')
         clean = clean.replace('i', '1').replace('|', '1').replace('l', '1')
         clean = clean.replace('s', '5').replace('o', '0').replace('z', '2')
         
