@@ -14,15 +14,28 @@ def load_ocr():
     return easyocr.Reader(['en'], gpu=False)
 
 def get_herb_aliases(herb_name):
+    """Full mapping of actual herb names to known OCR hallucinations."""
     mapping = {
-        "healing sunflower": ["sundlng", "hcalig", "healig", "sunllower", "hcaling", "suadlag", "hedig"],
-        "black iron root": ["ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "koroo", "bled"],
-        "blue wave coral herb": ["ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "uallub", "qbal"],
-        "thousand year lotus": ["hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard"],
-        "moonlight jade leaf": ["saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "mooclight"],
-        "ironbone grass": ["iobge", "kuboue", "ouboue", "bonbone", "konbong", "iabssa", "gcass"],
-        "wild spirit grass": ["budspide", "gas3", "wnika", "spinft", "eapnn"],
-        "seven star flower": ["setcnsaac", "sevez", "sur", "8lst", "fte"]
+        "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag", "hlcaling", "hedig", "heali4g", "heallig", "ealv"],
+        "black iron root": ["black", "ironroot", "ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "bledk", "koro", "koroo", "bled", "korooz", "ko", "rooz"],
+        "blue wave coral herb": ["blue", "wave", "coral", "ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "uallub", "qbal", "ualleb", "dallazz"],
+        "thousand year lotus": ["thousand", "lotus", "hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "iboutnd", "ycclas", "yac", "ibosseadd", "yatoud"],
+        "moonlight jade leaf": ["moonlight", "jadeleaf", "saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "meonligbt", "jadglca", "saal", "meuuligbt", "saglti"],
+        "ironbone grass": ["ironbone", "gtass", "iobge", "kuboue", "ouboue", "bonbone", "konbong", "iabssa", "gcass", "iabge"],
+        "nine suns flame grass": ["ninesuns", "flamegrass"],
+        "purple lightning orchid": ["purple", "orchid", "lightning", "bistadattg", "ruplg", "lipnnidg", "eunte"],
+        "red ginseng": ["ginseng", "red"],
+        "bitter jade grass": ["bitter", "jadegrass"],
+        "cloud mist herb": ["cloud", "mist", "mistherb", "candmse", "hedb", "dudsb", "hub"],
+        "spirit spring herb": ["spiritspring", "springherb"],
+        "dandelion of qi": ["dandelion", "ofqi"],
+        "seven star flower": ["sevenstar", "starflower", "setcnsaac", "flower", "sevez", "sur", "8lst", "fte"],
+        "starlight dew herb": ["starlight", "dewherb"],
+        "heavenly spirit vine": ["heavenly", "spiritvine"],
+        "mountain green herb": ["mountain", "greenherb"],
+        "wild spirit grass": ["wildspirit", "wild", "budspide", "gas3", "wnika", "spinft", "eapnn"],
+        "azure serpent grass": ["azure", "serpent"],
+        "wild bitter grass": ["wildbitter", "bittergrass"]
     }
     aliases = mapping.get(herb_name.lower(), [])
     for w in herb_name.lower().split():
@@ -45,7 +58,6 @@ def decompile_screenshot(image_file, herb_list):
     
     for bbox, text, prob in results:
         clean = text.lower().replace(' ', '')
-        # OCR Correction Logic
         clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12')
         for c, r in [('i','1'), ('|','1'), ('l','1'), ('s','5'), ('o','0'), ('z','2')]: clean = clean.replace(c, r)
         
@@ -75,7 +87,7 @@ def decompile_screenshot(image_file, herb_list):
     return found_inv
 
 # -------------------------------
-# 2. RECIPE DATABASE
+# 2. FULL RECIPE DATABASE
 # -------------------------------
 def get_db():
     return {
@@ -84,26 +96,33 @@ def get_db():
         "Stormheart Pill": [{"tier": "Heavenly", "ingredients": {"cloud mist herb": 4, "spirit spring herb": 2}, "qi": 225}],
         "Lotus Nirvana Pill": [{"tier": "Standard", "ingredients": {"thousand year lotus": 6}, "qi": 50}],
         "Starborn Agility Pill": [{"tier": "Imperfect", "ingredients": {"dandelion of qi": 1, "seven star flower": 2, "blue wave coral herb": 1, "cloud mist herb": 1, "spirit spring herb": 1}, "qi": 115}, {"tier": "Heavenly", "ingredients": {"seven star flower": 5, "cloud mist herb": 1}, "qi": 230}],
-        "Dragon Pulse Pill": [{"tier": "Heavenly (V1)", "ingredients": {"blue wave coral herb": 2, "cloud mist herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 160}],
+        "Dragon Pulse Pill": [{"tier": "Imperfect", "ingredients": {"blue wave coral herb": 2, "cloud mist herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 80}, {"tier": "Heavenly (V1)", "ingredients": {"blue wave coral herb": 2, "cloud mist herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 160}, {"tier": "Heavenly (V2)", "ingredients": {"blue wave coral herb": 2, "silverleaf herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 168}],
+        "Void Clarity Pill": [{"tier": "Standard", "ingredients": {"starlight dew herb": 2, "cloud mist herb": 2, "heavenly spirit vine": 1, "bitter jade grass": 1}, "qi": 170}],
+        "Celestial Harmony Pill": [{"tier": "Imperfect", "ingredients": {"silverleaf herb": 1, "seven star flower": 1, "mountain green herb": 1, "qi dandelion": 1, "wild spirit grass": 2}, "qi": 90}, {"tier": "Heavenly", "ingredients": {"thousand year lotus": 1, "silverleaf herb": 1, "seven star flower": 3, "moonlight jade leaf": 1}, "qi": 236}],
+        "Seven Star Enlightenment": [{"tier": "Imperfect", "ingredients": {"spirit spring herb": 1, "seven star flower": 2, "starlight dew herb": 2, "silverleaf herb": 1}, "qi": 125}, {"tier": "Heavenly (Lotus)", "ingredients": {"thousand year lotus": 2, "blue wave coral herb": 1, "heavenly spirit vine": 1, "starlight dew herb": 2}, "qi": 285}, {"tier": "Heavenly (Pure)", "ingredients": {"heavenly spirit vine": 1, "starlight dew herb": 5}, "qi": 295}],
         "Dragon Essence Pill": [{"tier": "Standard", "ingredients": {"azure serpent grass": 1, "purple lightning orchid": 1, "nine suns flame grass": 1, "crimson flame mushroom": 2, "cloud mist herb": 1}, "qi": 0, "spec": "18% Lifespan"}, {"tier": "Heavenly", "ingredients": {"heavenly spirit vine": 2, "purple lightning orchid": 1, "nine suns flame grass": 1, "moonlight jade leaf": 1}, "qi": 0, "spec": "24% Lifespan"}],
-        "Sun Roses Rebirth": [{"tier": "Vit V3", "ingredients": {"healing sunflower": 2, "ironbone grass": 2, "red ginseng": 1, "crimson flame mushroom": 1}, "qi": 0, "spec": "45% Vitality (Perm)"}],
+        "Sun Roses Rebirth": [{"tier": "Vit V1", "ingredients": {"wild bitter grass": 2, "red ginseng": 1, "healing sunflower": 2, "mountain green herb": 1}, "qi": 0, "spec": "20% Vitality (Perm)"}, {"tier": "Vit V2", "ingredients": {"mountain green herb": 3, "healing sunflower": 3}, "qi": 0, "spec": "20% Vitality (Perm)"}, {"tier": "Vit V3", "ingredients": {"healing sunflower": 2, "ironbone grass": 2, "red ginseng": 1, "crimson flame mushroom": 1}, "qi": 0, "spec": "45% Vitality (Perm)"}, {"tier": "Vit V4", "ingredients": {"healing sunflower": 2, "ironbone grass": 3, "red ginseng": 1}, "qi": 0, "spec": "41% Vitality (Perm)"}],
+        "Phoenix Ember Pill": [{"tier": "Standard", "ingredients": {"crimson flame mushroom": 1, "silverleaf herb": 1, "mountain green herb": 1, "qi dandelion": 2, "spirit spring herb": 1}, "qi": 0, "spec": "70% Vit / 40% Spd"}],
+        "Mistveil Focus Pill": [{"tier": "Standard", "ingredients": {"silverleaf herb": 3, "spirit spring herb": 3}, "qi": 238}, {"tier": "Focus-V2", "ingredients": {"silverleaf herb": 3, "spirit spring herb": 2, "seven star flower": 1}, "qi": 245}, {"tier": "Focus-V3", "ingredients": {"cloud mist herb": 2, "spirit spring herb": 2, "starlight dew herb": 1, "heavenly spirit vine": 1}, "qi": 260}],
+        "Concentration Pill": [{"tier": "Dandelion Mix", "ingredients": {"seven star flower": 1, "azure serpent grass": 3, "dandelion of qi": 2}, "qi": 100}, {"tier": "Pure Mix", "ingredients": {"seven star flower": 3, "azure serpent grass": 3}, "qi": 100}, {"tier": "Spring Mix", "ingredients": {"seven star flower": 1, "azure serpent grass": 3, "spirit spring herb": 2}, "qi": 100}],
         "Ironclad Resolve": [{"tier": "Heavenly", "ingredients": {"silverleaf herb": 1, "moonlight jade leaf": 1, "spirit spring herb": 1, "crimson flame mushroom": 1, "black iron root": 2}, "qi": 0, "spec": "Perm Str/Vit"}],
+        "Tideborn Vigor": [{"tier": "Heavenly", "ingredients": {"wild spirit grass": 1, "wild bitter grass": 1, "red ginseng": 1, "silverleaf herb": 1, "mountain green herb": 1, "qi dandelion": 1}, "qi": 0, "spec": "Vit/Str Boost"}],
+        "Blazewind Pill": [{"tier": "Heavenly", "ingredients": {"crimson flame mushroom": 2, "purple lightning orchid": 3, "wild spirit grass": 1}, "qi": 0, "spec": "Perm Spd/Str"}],
+        "Soul Replenishing": [{"tier": "Heavenly", "ingredients": {"healing sunflower": 2, "red ginseng": 1, "ironbone grass": 2, "seven star flower": 1}, "qi": 0, "spec": "12% Lifespan (Perm)"}]
     }
 
 # -------------------------------
-# 3. INTERFACE & STATE MANAGEMENT
+# 3. INTERFACE & STABLE STATE
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy", page_icon="🧿")
 
 db = get_db()
+# Collect every unique herb mentioned in recipes
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
 
-# --- CRITICAL FIX: Decoupled State ---
+# Decoupled State Management
 if 'inventory' not in st.session_state:
     st.session_state.inventory = {h: 0 for h in all_herbs}
-
-def update_inv(herb, val):
-    st.session_state.inventory[herb] = val
 
 st.markdown("""<style>
     .stApp { background: #0e1117; color: white; }
@@ -138,23 +157,23 @@ with tab2:
     filtered = [h for h in all_herbs if h_search in h]
     for i, h in enumerate(filtered):
         with cols[i % 3]:
-            # Use 'value' instead of 'key' to avoid modification errors
-            new_val = st.number_input(h.title(), min_value=0, value=st.session_state.inventory[h], key=f"widget_{h}")
-            st.session_state.inventory[h] = new_val
+            # Directly bind number input to internal dict to keep widgets in sync
+            val = st.number_input(h.title(), min_value=0, value=st.session_state.inventory.get(h, 0), key=f"widget_{h}")
+            st.session_state.inventory[h] = val
 
-# --- TAB 1: BREWING ---
+# --- TAB 1: BREWING LAB ---
 with tab1:
     p_query = st.text_input("🔍 Search Recipes...", "").lower()
     
     for name, variants in db.items():
         for v in variants:
-            # Check availability using the internal dict
+            # Check if all ingredients are available
             possible = [st.session_state.inventory.get(ing, 0) // req for ing, req in v["ingredients"].items()]
             amt = min(possible) if possible else 0
             
             if amt > 0 and (not p_query or p_query in name.lower() or p_query in v['tier'].lower()):
                 qi_val = v["qi"] * 3 if handcrafted else v["qi"]
-                is_perm = any(w in (v.get('spec', '')).lower() for w in ["perm", "lifespan"])
+                is_perm = any(w in (v.get('spec', '')).lower() for w in ["perm", "lifespan", "nirvana"])
                 
                 badge_html = f'<span class="badge">{"Permanent" if is_perm else "Temporary"}</span>'
                 if qi_val > 0: badge_html += f'<span class="badge" style="color:#3fb950;">+{qi_val}% Qi</span>'
@@ -176,8 +195,7 @@ with tab1:
 </div>
 ''', unsafe_allow_html=True)
                 
-                if st.button(f"Brew 1x {name} ({v['tier']})", key=f"btn_{name}_{v['tier']}"):
-                    # Modify the internal dict, not the widget key directly
+                if st.button(f"Consume Materials for 1x {name} ({v['tier']})", key=f"btn_{name}_{v['tier']}"):
                     for ing, req in v["ingredients"].items():
                         st.session_state.inventory[ing] -= req
                     st.toast(f"Produced 1x {name}!")
@@ -185,4 +203,4 @@ with tab1:
                 st.divider()
 
     if not any(st.session_state.inventory.get(ing, 0) >= req for name in db for v in db[name] for ing, req in v["ingredients"].items()):
-        st.info("No craftable items found. Scan a screenshot or add ingredients to the chest.")
+        st.info("No craftable items. Add ingredients manually or scan a screenshot.")
