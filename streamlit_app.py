@@ -14,7 +14,6 @@ def load_ocr():
     return easyocr.Reader(['en'], gpu=False)
 
 def get_herb_aliases(herb_name):
-    """Maps actual herb names to known OCR hallucinations."""
     mapping = {
         "healing sunflower": ["sundlng", "hcalig", "healig", "sunllower", "hcaling", "suadlag", "hedig"],
         "black iron root": ["ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "koroo", "bled"],
@@ -36,27 +35,21 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # Scale to 800px width for consistent OCR speed/accuracy
     scale = 800 / img_cv.shape[1]
     img_cv = cv2.resize(img_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
     results = reader.readtext(gray, text_threshold=0.2, low_text=0.2)
-    
     curr_h, curr_w = gray.shape[:2]
-    numbers_found, herbs_found, raw_text_seen = [], [], []
+    numbers_found, herbs_found = [], []
     
     for bbox, text, prob in results:
-        raw_text_seen.append(text)
         clean = text.lower().replace(' ', '')
-        
-        # Double-Digit Interceptor (OCR Character Correction)
-        clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12').replace('x2z', 'x12')
-        clean = clean.replace('xi2', 'x12').replace('x|2', 'x12').replace('xl2', 'x12').replace('x22', 'x12')
+        # OCR Correction Logic
+        clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12')
         for c, r in [('i','1'), ('|','1'), ('l','1'), ('s','5'), ('o','0'), ('z','2')]: clean = clean.replace(c, r)
         
-        cx = (bbox[0][0] + bbox[1][0]) / 2
-        cy = (bbox[0][1] + bbox[2][1]) / 2
+        cx, cy = (bbox[0][0] + bbox[1][0]) / 2, (bbox[0][1] + bbox[2][1]) / 2
         
         if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
             nums = ''.join(filter(str.isdigit, clean))
@@ -70,7 +63,7 @@ def decompile_screenshot(image_file, herb_list):
                         herbs_found.append({'herb': herb, 'x': cx, 'y': cy})
                         break
 
-    found_inventory = {}
+    found_inv = {}
     for h_frag in herbs_found:
         best_num, min_dist = None, float('inf')
         for num in numbers_found:
@@ -78,12 +71,11 @@ def decompile_screenshot(image_file, herb_list):
             if 0 < y_diff < (curr_h * 0.3) and x_diff < (curr_w * 0.15):
                 dist = (x_diff**2 + y_diff**2)**0.5
                 if dist < min_dist: min_dist, best_num = dist, num
-        if best_num: found_inventory[h_frag['herb']] = max(found_inventory.get(h_frag['herb'], 0), best_num['qty'])
-                
-    return found_inventory, raw_text_seen
+        if best_num: found_inv[h_frag['herb']] = max(found_inv.get(h_frag['herb'], 0), best_num['qty'])
+    return found_inv
 
 # -------------------------------
-# 2. FULL RECIPE DATABASE
+# 2. RECIPE DATABASE
 # -------------------------------
 def get_db():
     return {
@@ -99,9 +91,19 @@ def get_db():
     }
 
 # -------------------------------
-# 3. INTERFACE & STYLING
+# 3. INTERFACE & STATE MANAGEMENT
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy", page_icon="🧿")
+
+db = get_db()
+all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
+
+# --- CRITICAL FIX: Decoupled State ---
+if 'inventory' not in st.session_state:
+    st.session_state.inventory = {h: 0 for h in all_herbs}
+
+def update_inv(herb, val):
+    st.session_state.inventory[herb] = val
 
 st.markdown("""<style>
     .stApp { background: #0e1117; color: white; }
@@ -110,30 +112,24 @@ st.markdown("""<style>
     .badge { display: inline-block; background: rgba(88, 166, 255, 0.1); color: #58a6ff; padding: 2px 8px; border-radius: 5px; font-size: 0.8rem; border: 1px solid rgba(88, 166, 255, 0.2); margin-right: 5px; }
 </style>""", unsafe_allow_html=True)
 
-db = get_db()
-all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
-
-# Session State
-for h in all_herbs:
-    if f"i_{h}" not in st.session_state: st.session_state[f"i_{h}"] = 0
-
 tab1, tab2 = st.tabs(["🥣 Lab Dashboard", "🎒 Ingredients Chest"])
 
-# --- TAB 2: INVENTORY SCANNER ---
+# --- TAB 2: INVENTORY ---
 with tab2:
     st.markdown("### 📸 Screenshot Decompiler")
     ss_file = st.file_uploader("Upload Inventory Screenshot", type=['png', 'jpg', 'jpeg'])
     if ss_file and st.button("✨ Decompile Image"):
-        with st.spinner("Raycasting Layout..."):
-            found, raw = decompile_screenshot(ss_file, all_herbs)
-            for h, q in found.items(): st.session_state[f"i_{h}"] = q
+        with st.spinner("Decoding patterns..."):
+            found = decompile_screenshot(ss_file, all_herbs)
+            for h, q in found.items():
+                st.session_state.inventory[h] = q
             st.success("Chest Updated!")
             st.rerun()
 
     c1, c2 = st.columns(2)
     with c1: 
         if st.button("🧹 Clear All Stock"):
-            for h in all_herbs: st.session_state[f"i_{h}"] = 0
+            st.session_state.inventory = {h: 0 for h in all_herbs}
             st.rerun()
     with c2: handcrafted = st.toggle("✨ Handcrafted (3x)", value=False)
 
@@ -141,29 +137,29 @@ with tab2:
     cols = st.columns(3)
     filtered = [h for h in all_herbs if h_search in h]
     for i, h in enumerate(filtered):
-        with cols[i % 3]: st.number_input(h.title(), min_value=0, key=f"i_{h}")
+        with cols[i % 3]:
+            # Use 'value' instead of 'key' to avoid modification errors
+            new_val = st.number_input(h.title(), min_value=0, value=st.session_state.inventory[h], key=f"widget_{h}")
+            st.session_state.inventory[h] = new_val
 
-# --- TAB 1: BREWING LAB ---
+# --- TAB 1: BREWING ---
 with tab1:
     p_query = st.text_input("🔍 Search Recipes...", "").lower()
-    inv = {h: st.session_state[f"i_{h}"] for h in all_herbs}
     
     for name, variants in db.items():
         for v in variants:
-            # Check availability
-            possible = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
+            # Check availability using the internal dict
+            possible = [st.session_state.inventory.get(ing, 0) // req for ing, req in v["ingredients"].items()]
             amt = min(possible) if possible else 0
             
             if amt > 0 and (not p_query or p_query in name.lower() or p_query in v['tier'].lower()):
                 qi_val = v["qi"] * 3 if handcrafted else v["qi"]
                 is_perm = any(w in (v.get('spec', '')).lower() for w in ["perm", "lifespan"])
                 
-                # PRE-BUILD BADGES (Prevents the HTML-Code-Printing Bug)
                 badge_html = f'<span class="badge">{"Permanent" if is_perm else "Temporary"}</span>'
                 if qi_val > 0: badge_html += f'<span class="badge" style="color:#3fb950;">+{qi_val}% Qi</span>'
                 if v.get("spec"): badge_html += f'<span class="badge" style="color:#d2a8ff;">{v["spec"]}</span>'
 
-                # MAIN CARD RENDERING
                 st.markdown(f'''
 <div class="app-card">
     <div style="display:flex; justify-content:space-between; align-items: flex-start;">
@@ -180,13 +176,13 @@ with tab1:
 </div>
 ''', unsafe_allow_html=True)
                 
-                # BREW BUTTON
-                if st.button(f"Consume Materials for 1x {name} ({v['tier']})", key=f"btn_{name}_{v['tier']}"):
+                if st.button(f"Brew 1x {name} ({v['tier']})", key=f"btn_{name}_{v['tier']}"):
+                    # Modify the internal dict, not the widget key directly
                     for ing, req in v["ingredients"].items():
-                        st.session_state[f"i_{ing}"] -= req
+                        st.session_state.inventory[ing] -= req
                     st.toast(f"Produced 1x {name}!")
                     st.rerun()
                 st.divider()
 
-    if not any(min([inv.get(ing,0)//req for ing,req in v["ingredients"].items()] or [0]) > 0 for name in db for v in db[name]):
-        st.info("No craftable items. Add ingredients manually or scan a screenshot.")
+    if not any(st.session_state.inventory.get(ing, 0) >= req for name in db for v in db[name] for ing, req in v["ingredients"].items()):
+        st.info("No craftable items found. Scan a screenshot or add ingredients to the chest.")
