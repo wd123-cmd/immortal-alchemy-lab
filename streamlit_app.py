@@ -7,7 +7,7 @@ import difflib
 import re
 
 # -------------------------------
-# 1. DYNAMIC RAYCASTER ENGINE (Fast & Accurate)
+# 1. THE GOLDEN RATIO + COLOR MASK ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
@@ -60,12 +60,16 @@ def decompile_screenshot(image_file, herb_list):
     scale = 800 / w
     img_cv = cv2.resize(img_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC)
     
+    # --- 🛑 THE NEW MAGIC: PURE TEXT ISOLATION ---
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
-    # --- 🦉 RESTORED NIGHT VISION (Guarantees it sees the numbers) ---
-    results = reader.readtext(gray, text_threshold=0.2, low_text=0.2)
+    # This mathematically deletes anything that isn't bright white (removes backgrounds/wood grain)
+    _, pure_text = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
     
-    curr_h, curr_w = gray.shape[:2]
+    # --- 🦉 RESTORED NIGHT VISION (Guarantees it sees the numbers) ---
+    results = reader.readtext(pure_text, text_threshold=0.2, low_text=0.2)
+    
+    curr_h, curr_w = pure_text.shape[:2]
     
     numbers_found = []
     herbs_found = []
@@ -75,11 +79,10 @@ def decompile_screenshot(image_file, herb_list):
         raw_text_seen.append(text)
         clean = text.lower().replace(' ', '')
         
-        # --- 🚨 THE DOUBLE-DIGIT NUMBER INTERCEPTOR 🚨 ---
+        # Intercept UI glitches
         clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12').replace('x2z', 'x12')
         clean = clean.replace('xi2', 'x12').replace('x|2', 'x12').replace('xl2', 'x12').replace('x22', 'x12')
         
-        # If the 'x' was misread as a duplicate number
         if clean == '22': clean = 'x2'
         if clean == '44': clean = 'x4'
         if clean == '55': clean = 'x5'
@@ -206,7 +209,7 @@ with tab2:
     
     if ss_file:
         if st.button("✨ Decompile Image"):
-            with st.spinner("Raycasting Layout & Decoding Herbs..."):
+            with st.spinner("Applying Color Masks & Decoding Herbs..."):
                 found, raw_text = decompile_screenshot(ss_file, all_herbs)
                 
                 st.session_state['debug_log'] = raw_text
