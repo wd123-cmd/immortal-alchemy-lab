@@ -7,7 +7,7 @@ import difflib
 import re
 
 # -------------------------------
-# 1. THE BULLETPROOF RAYCASTER ENGINE
+# 1. NORMALIZED RAYCASTER ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
@@ -51,15 +51,14 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # --- 🛡️ RAM SAFETY SHIELD ---
+    # --- ⚡ THE SPEED & ACCURACY NORMALIZER ---
+    # Forces every image to be exactly 800px tall.
+    # Stops full-screens from taking forever, and stops crops from failing the geometry math!
     height, width = img_cv.shape[:2]
-    max_dimension = 1000
-    if width > max_dimension or height > max_dimension:
-        safe_scale = max_dimension / max(width, height)
-        img_cv = cv2.resize(img_cv, None, fx=safe_scale, fy=safe_scale, interpolation=cv2.INTER_AREA)
+    target_height = 800
+    scale = target_height / height
+    img_cv = cv2.resize(img_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
     
-    # Memory-Safe 1.5x Upscale for reading
-    img_cv = cv2.resize(img_cv, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
     results = reader.readtext(gray, text_threshold=0.2, low_text=0.2)
@@ -105,10 +104,11 @@ def decompile_screenshot(image_file, herb_list):
                 if matched_herb:
                     herbs_found.append({'herb': matched_herb, 'x': cx, 'y': cy})
 
-    # PHASE 2: Vertical Raycasting
+    # PHASE 2: Normalized Vertical Raycasting
     found_data = {}
     for num in numbers_found:
-        valid_herbs = [h for h in herbs_found if h['y'] > num['y'] and abs(h['x'] - num['x']) < 80]
+        # Because the image is ALWAYS 800px tall now, 150px down and 100px wide is universally perfect.
+        valid_herbs = [h for h in herbs_found if 0 < (h['y'] - num['y']) < 150 and abs(h['x'] - num['x']) < 100]
         
         if valid_herbs:
             valid_herbs.sort(key=lambda h: h['y'] - num['y'])
