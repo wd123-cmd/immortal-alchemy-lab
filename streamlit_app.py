@@ -5,11 +5,10 @@ import easyocr
 from PIL import Image
 
 # -------------------------------
-# 1. OPTIMIZED DECOMPILER ENGINE
+# 1. MULTI-STAGE DECOMPILER ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
-    # Only loads the model once. This saves RAM on the server.
     return easyocr.Reader(['en'], gpu=False)
 
 def decompile_screenshot(image_file, herb_list):
@@ -18,47 +17,47 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # --- PRE-PROCESSING ---
-    # 1. Convert to Gray
+    # --- MULTI-STAGE PRE-PROCESSING ---
+    # Filter A: Original Color
+    # Filter B: Grayscale + High Contrast
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-    
-    # 2. Thresholding: Make white text pure white and background pure black
-    _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
-    
-    # 3. Dilation: Makes the thin white font thicker so the AI can see it
+    contrast = cv2.convertScaleAbs(gray, alpha=2.0, beta=0)
+    # Filter C: Dilation (Thickens the thin 'x12' font)
     kernel = np.ones((2,2), np.uint8)
-    processed_img = cv2.dilate(thresh, kernel, iterations=1)
+    dilated = cv2.dilate(contrast, kernel, iterations=1)
     
-    # Scan the processed image
-    results = reader.readtext(processed_img)
+    # Run OCR on all versions to maximize detection chances
+    results = reader.readtext(img_cv) + reader.readtext(contrast) + reader.readtext(dilated)
     
     # Sort results by vertical position (Top to Bottom)
     results.sort(key=lambda x: x[0][0][1])
 
     found_data = {}
     for i, (bbox, text, prob) in enumerate(results):
-        # FONT CORRECTION: Fixes 'xI2' (12) and 'xS' (5)
+        # CLEAN & CORRECT FONT ERRORS
         clean = text.lower().replace(' ', '')
         clean = clean.replace('i', '1').replace('|', '1').replace('l', '1').replace('[', '1')
-        clean = clean.replace('s', '5').replace('o', '0').replace('q', '9').replace('z', '2')
+        clean = clean.replace('s', '5').replace('o', '0').replace('q', '9').replace('z', '2').replace('g', '9')
         
-        # Identify Quantity (e.g. x12, 12)
-        if any(char.isdigit() for char in clean) and len(clean) < 6:
+        # Identify Quantity (looking for numbers)
+        num_str = ''.join(filter(str.isdigit, clean))
+        if num_str and len(num_str) < 5:
             try:
-                num_str = ''.join(filter(str.isdigit, clean))
-                if not num_str: continue
                 quantity = int(num_str)
                 
-                # SEARCH NEARBY: Look at the 4 text blocks following the number
-                for j in range(1, 5): 
-                    if i + j < len(results):
+                # SEARCH NEARBY: Look at 5 text blocks around the number
+                for j in range(-2, 5): 
+                    if 0 <= i + j < len(results):
                         potential_name = results[i+j][1].lower().strip()
                         for herb in herb_list:
-                            # Fuzzy check for stylized names
+                            # Fuzzy check: If herb name is inside the read text or vice versa
                             if herb.lower() in potential_name or potential_name in herb.lower():
-                                found_data[herb] = quantity
+                                # Only update if we found a higher quantity (prevents double-counting)
+                                if herb not in found_data or quantity > found_data[herb]:
+                                    found_data[herb] = quantity
                                 break
             except: continue
+            
     return found_data
 
 # -------------------------------
@@ -114,7 +113,7 @@ for h in all_herbs:
 tab1, tab2 = st.tabs(["🥣 Lab Dashboard", "🎒 Ingredients Chest"])
 
 with tab2:
-    st.markdown("### 📸 Image Decompiler")
+    st.markdown("### 📸 Visual Reader")
     ss_file = st.file_uploader("Upload Inventory Screenshot", type=['png', 'jpg', 'jpeg'])
     if ss_file:
         if st.button("✨ Decompile Image"):
@@ -129,12 +128,12 @@ with tab2:
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🧹 Clear All"):
+        if st.button("🧹 Clear All Stock"):
             for h in all_herbs: st.session_state[f"i_{h}"] = 0
             st.rerun()
     with c2: handcrafted = st.toggle("✨ Handcrafted (3x)", value=False)
     
-    h_search = st.text_input("🔍 Manual Search...", "").lower()
+    h_search = st.text_input("🔍 Manual Search/Edit...", "").lower()
     cols = st.columns(2)
     filtered = [h for h in all_herbs if h_search in h]
     for i, h in enumerate(filtered):
