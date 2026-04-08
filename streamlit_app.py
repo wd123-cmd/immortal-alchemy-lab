@@ -5,11 +5,11 @@ import easyocr
 from PIL import Image
 
 # -------------------------------
-# 1. ADVANCED DECOMPILER ENGINE
+# 1. OPTIMIZED DECOMPILER ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
-    # Loads the English model into memory
+    # Only loads the model once. This saves RAM on the server.
     return easyocr.Reader(['en'], gpu=False)
 
 def decompile_screenshot(image_file, herb_list):
@@ -18,38 +18,43 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # --- IMAGE PRE-PROCESSING ---
+    # --- PRE-PROCESSING ---
+    # 1. Convert to Gray
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-    # Sharpening kernel to fix thin/stylized game fonts
-    kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-    sharpened = cv2.filter2D(gray, -1, kernel)
-    # Binary thresholding to make white text stand out
-    _, thresh = cv2.threshold(sharpened, 200, 255, cv2.THRESH_BINARY)
     
-    # Scan both the original and sharpened versions
-    results = reader.readtext(thresh) + reader.readtext(img_cv)
-    results.sort(key=lambda x: x[0][0][1]) # Sort by vertical position
+    # 2. Thresholding: Make white text pure white and background pure black
+    _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+    
+    # 3. Dilation: Makes the thin white font thicker so the AI can see it
+    kernel = np.ones((2,2), np.uint8)
+    processed_img = cv2.dilate(thresh, kernel, iterations=1)
+    
+    # Scan the processed image
+    results = reader.readtext(processed_img)
+    
+    # Sort results by vertical position (Top to Bottom)
+    results.sort(key=lambda x: x[0][0][1])
 
     found_data = {}
     for i, (bbox, text, prob) in enumerate(results):
-        # FONT CORRECTION: Fixes 'xI2' becoming 'x12'
+        # FONT CORRECTION: Fixes 'xI2' (12) and 'xS' (5)
         clean = text.lower().replace(' ', '')
-        clean = clean.replace('i', '1').replace('|', '1').replace('l', '1')
-        clean = clean.replace('s', '5').replace('o', '0').replace('q', '9')
+        clean = clean.replace('i', '1').replace('|', '1').replace('l', '1').replace('[', '1')
+        clean = clean.replace('s', '5').replace('o', '0').replace('q', '9').replace('z', '2')
         
-        # Detect Quantity (e.g., x12, x 12, or just 12)
-        if ('x' in clean or any(char.isdigit() for char in clean)) and len(clean) < 6:
+        # Identify Quantity (e.g. x12, 12)
+        if any(char.isdigit() for char in clean) and len(clean) < 6:
             try:
                 num_str = ''.join(filter(str.isdigit, clean))
                 if not num_str: continue
                 quantity = int(num_str)
                 
-                # SEARCH NEARBY: Look below the number for the herb name
+                # SEARCH NEARBY: Look at the 4 text blocks following the number
                 for j in range(1, 5): 
                     if i + j < len(results):
                         potential_name = results[i+j][1].lower().strip()
                         for herb in herb_list:
-                            # Fuzzy matching for stylized names
+                            # Fuzzy check for stylized names
                             if herb.lower() in potential_name or potential_name in herb.lower():
                                 found_data[herb] = quantity
                                 break
@@ -61,38 +66,17 @@ def decompile_screenshot(image_file, herb_list):
 # -------------------------------
 def get_db():
     return {
-        "Nine Yang Pill": [
-            {"tier": "Standard", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "ironbone grass": 2, "crimson flame mushroom": 1}, "qi": 92},
-            {"tier": "Heavenly", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "black iron root": 2, "crimson flame mushroom": 1}, "qi": 120}
-        ],
-        "Jade Tide Pill": [
-            {"tier": "Standard", "ingredients": {"blue wave coral herb": 2, "moonlight jade leaf": 2, "red ginseng": 1, "bitter jade grass": 1}, "qi": 150},
-            {"tier": "Heavenly", "ingredients": {"blue wave coral herb": 2, "black iron root": 1, "crimson flame mushroom": 1, "bitter jade grass": 2}, "qi": 162}
-        ],
+        "Nine Yang Pill": [{"tier": "Standard", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "ironbone grass": 2, "crimson flame mushroom": 1}, "qi": 92}, {"tier": "Heavenly", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "black iron root": 2, "crimson flame mushroom": 1}, "qi": 120}],
+        "Jade Tide Pill": [{"tier": "Standard", "ingredients": {"blue wave coral herb": 2, "moonlight jade leaf": 2, "red ginseng": 1, "bitter jade grass": 1}, "qi": 150}, {"tier": "Heavenly", "ingredients": {"blue wave coral herb": 2, "black iron root": 1, "crimson flame mushroom": 1, "bitter jade grass": 2}, "qi": 162}],
         "Stormheart Pill": [{"tier": "Heavenly", "ingredients": {"cloud mist herb": 4, "spirit spring herb": 2}, "qi": 225}],
         "Lotus Nirvana Pill": [{"tier": "Standard", "ingredients": {"thousand year lotus": 6}, "qi": 50}],
-        "Starborn Agility Pill": [
-            {"tier": "Imperfect", "ingredients": {"dandelion of qi": 1, "seven star flower": 2, "blue wave coral herb": 1, "cloud mist herb": 1, "spirit spring herb": 1}, "qi": 115},
-            {"tier": "Heavenly", "ingredients": {"seven star flower": 5, "cloud mist herb": 1}, "qi": 230}
-        ],
-        "Dragon Pulse Pill": [
-            {"tier": "Imperfect", "ingredients": {"blue wave coral herb": 2, "cloud mist herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 80},
-            {"tier": "Heavenly (V2)", "ingredients": {"blue wave coral herb": 2, "silverleaf herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 168}
-        ],
+        "Starborn Agility Pill": [{"tier": "Heavenly", "ingredients": {"seven star flower": 5, "cloud mist herb": 1}, "qi": 230}],
+        "Dragon Pulse Pill": [{"tier": "Heavenly (V2)", "ingredients": {"blue wave coral herb": 2, "silverleaf herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 168}],
         "Void Clarity Pill": [{"tier": "Standard", "ingredients": {"starlight dew herb": 2, "cloud mist herb": 2, "heavenly spirit vine": 1, "bitter jade grass": 1}, "qi": 170}],
         "Celestial Harmony Pill": [{"tier": "Heavenly", "ingredients": {"thousand year lotus": 1, "silverleaf herb": 1, "seven star flower": 3, "moonlight jade leaf": 1}, "qi": 236}],
-        "Seven Star Enlightenment": [
-            {"tier": "Heavenly (Lotus)", "ingredients": {"thousand year lotus": 2, "blue wave coral herb": 1, "heavenly spirit vine": 1, "starlight dew herb": 2}, "qi": 285},
-            {"tier": "Heavenly (Pure)", "ingredients": {"heavenly spirit vine": 1, "starlight dew herb": 5}, "qi": 295}
-        ],
-        "Dragon Essence Pill": [
-            {"tier": "Standard", "ingredients": {"azure serpent grass": 1, "purple lightning orchid": 1, "nine suns flame grass": 1, "crimson flame mushroom": 2, "cloud mist herb": 1}, "qi": 0, "spec": "18% Lifespan"},
-            {"tier": "Heavenly", "ingredients": {"heavenly spirit vine": 2, "purple lightning orchid": 1, "nine suns flame grass": 1, "moonlight jade leaf": 1}, "qi": 0, "spec": "24% Lifespan"}
-        ],
-        "Sun Roses Rebirth": [
-            {"tier": "Vit V3", "ingredients": {"healing sunflower": 2, "ironbone grass": 2, "red ginseng": 1, "crimson flame mushroom": 1}, "qi": 0, "spec": "45% Vitality (Perm)"},
-            {"tier": "Vit V4", "ingredients": {"healing sunflower": 2, "ironbone grass": 3, "red ginseng": 1}, "qi": 0, "spec": "41% Vitality (Perm)"}
-        ],
+        "Seven Star Enlightenment": [{"tier": "Heavenly (Pure)", "ingredients": {"heavenly spirit vine": 1, "starlight dew herb": 5}, "qi": 295}],
+        "Dragon Essence Pill": [{"tier": "Heavenly", "ingredients": {"heavenly spirit vine": 2, "purple lightning orchid": 1, "nine suns flame grass": 1, "moonlight jade leaf": 1}, "qi": 0, "spec": "24% Lifespan"}],
+        "Sun Roses Rebirth": [{"tier": "Vit V3", "ingredients": {"healing sunflower": 2, "ironbone grass": 2, "red ginseng": 1, "crimson flame mushroom": 1}, "qi": 0, "spec": "45% Vitality (Perm)"}],
         "Phoenix Ember Pill": [{"tier": "Standard", "ingredients": {"crimson flame mushroom": 1, "silverleaf herb": 1, "mountain green herb": 1, "qi dandelion": 2, "spirit spring herb": 1}, "qi": 0, "spec": "70% Vit / 40% Spd"}],
         "Mistveil Focus Pill": [{"tier": "Focus-V3", "ingredients": {"cloud mist herb": 2, "spirit spring herb": 2, "starlight dew herb": 1, "heavenly spirit vine": 1}, "qi": 260}],
         "Ironclad Resolve": [{"tier": "Heavenly", "ingredients": {"silverleaf herb": 1, "moonlight jade leaf": 1, "spirit spring herb": 1, "crimson flame mushroom": 1, "black iron root": 2}, "qi": 0, "spec": "Perm Str/Vit"}],
@@ -140,7 +124,7 @@ with tab2:
                     for herb, qty in found.items(): st.session_state[f"i_{herb}"] = qty
                     st.success(f"Successfully decoded {len(found)} herbs!")
                     st.rerun()
-                else: st.error("Reader failed. Check image quality.")
+                else: st.error("Reader failed. Make sure numbers and names are visible.")
 
     st.divider()
     c1, c2 = st.columns(2)
@@ -188,4 +172,4 @@ with tab1:
                 <div style="margin-top:10px;">{badges}</div>
                 <div class="total-box"><b>BATCH MATERIALS:</b><br>{totals}</div>
             </div>""", unsafe_allow_html=True)
-    else: st.info("No craftable items. Add ingredients in the next tab.")
+    else: st.info("No craftable items. Scan a screenshot or add ingredients in the next tab.")
