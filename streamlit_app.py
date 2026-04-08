@@ -10,7 +10,7 @@ import difflib
 # -------------------------------
 @st.cache_resource
 def load_ocr():
-    # Cache the AI model so it only loads once per server restart
+    # Cache the AI model so it only loads once
     return easyocr.Reader(['en'], gpu=False)
 
 def decompile_screenshot(image_file, herb_list):
@@ -19,21 +19,15 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # --- 1. UPSCALING ---
-    img_cv = cv2.resize(img_cv, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    # --- 300% UPSCALING ---
+    # Blow the image up so the AI can clearly see the stylized game font
+    # No harsh thresholding masks—let the neural net do its job on the gray pixels
+    img_cv = cv2.resize(img_cv, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
-    # --- 2. COLOR ISOLATION ---
-    lower_white = np.array([160, 160, 160])
-    upper_white = np.array([255, 255, 255])
-    mask = cv2.inRange(img_cv, lower_white, upper_white)
-    
-    kernel = np.ones((2,2), np.uint8)
-    mask = cv2.dilate(mask, kernel, iterations=1)
-    
-    inverted_mask = cv2.bitwise_not(mask)
-    
-    results = reader.readtext(inverted_mask)
-    results.sort(key=lambda x: x[0][0][1])
+    # Run OCR on the massive grayscale image
+    results = reader.readtext(gray)
+    results.sort(key=lambda x: x[0][0][1]) # Sort top-to-bottom
 
     found_data = {}
     raw_text_seen = []
@@ -45,17 +39,20 @@ def decompile_screenshot(image_file, herb_list):
         clean = text.lower().replace(' ', '').replace('i', '1').replace('|', '1').replace('l', '1')
         clean = clean.replace('s', '5').replace('o', '0').replace('z', '2')
         
+        # Look for a quantity marker
         if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
             try:
                 num_str = ''.join(filter(str.isdigit, clean))
                 if not num_str: continue
                 quantity = int(num_str)
                 
+                # Get the center coordinates of the number box
                 num_x = (bbox[0][0] + bbox[1][0]) / 2
                 num_y = (bbox[0][1] + bbox[2][1]) / 2
                 
                 combined_words = []
-                for j in range(1, 8): 
+                # Look ahead up to 10 blocks (since the 300% upscale creates more blocks)
+                for j in range(1, 10): 
                     if i + j < len(results):
                         name_bbox = results[i+j][0]
                         name_x = (name_bbox[0][0] + name_bbox[1][0]) / 2
@@ -64,12 +61,14 @@ def decompile_screenshot(image_file, herb_list):
                         y_diff = name_y - num_y
                         x_diff = abs(name_x - num_x)
                         
-                        if 0 < y_diff < 300 and x_diff < 200: 
+                        # Scaled up distances for the 300% image size
+                        if 0 < y_diff < 500 and x_diff < 350: 
                             word = results[i+j][1].lower()
                             combined_words.append(word)
                 
                 if not combined_words: continue
                 
+                # Stitch the words together (e.g., 'mopnlight' + 'jadalzar')
                 combined_str = "".join(combined_words).replace(" ", "")
                 best_match = None
                 best_ratio = 0.0
@@ -82,12 +81,14 @@ def decompile_screenshot(image_file, herb_list):
                         best_ratio = 1.0
                         break
                         
-                    ratio = difflib.SequenceMatcher(None, clean_herb, combined_str).ratio()
+                    # Fuzzy match to catch "Bladz Bon Roor" = "Black Iron Root"
+                    ratio = difflib.SequenceMatcher(None, clean_herb, combined_str[:len(clean_herb)+4]).ratio()
                     if ratio > best_ratio:
                         best_ratio = ratio
                         best_match = herb
                 
-                if best_match and best_ratio > 0.45:
+                # Extremely forgiving threshold (40%) to handle severe OCR hallucinations
+                if best_match and best_ratio > 0.40:
                     if best_match not in found_data or quantity > found_data[best_match]:
                         found_data[best_match] = quantity
             except: continue
@@ -176,7 +177,6 @@ st.markdown("""<style>
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
 
-# Initialize Session State Variables
 for h in all_herbs:
     if f"i_{h}" not in st.session_state: 
         st.session_state[f"i_{h}"] = 0
@@ -198,20 +198,17 @@ with tab2:
             with st.spinner("Upscaling and Decoding Spirit Herbs..."):
                 found, raw_text = decompile_screenshot(ss_file, all_herbs)
                 
-                # Save debug log to state so it persists
                 st.session_state['debug_log'] = raw_text
                 
                 if found:
                     for herb, qty in found.items(): 
-                        # Adds to current inventory instead of overwriting
                         st.session_state[f"i_{herb}"] += qty
                         
                     st.success(f"Successfully added {len(found)} herbs to your chest!")
                     st.rerun()
                 else: 
-                    st.error("Reader failed to match herbs.")
+                    st.error("Reader failed to match herbs. Check Debug data below.")
 
-    # Show debug log if it exists in session state
     if st.session_state['debug_log']:
         with st.expander("🛠️ View Raw AI Data (Debug)"):
             st.write("This is exactly what the AI saw in the last scan:")
