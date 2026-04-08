@@ -7,22 +7,18 @@ import difflib
 import re
 
 # -------------------------------
-# 1. DUAL-PASS DECOMPILER ENGINE
+# 1. MEMORY-SAFE DECOMPILER ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['en'], gpu=False)
 
 def get_herb_aliases(herb_name):
-    """Maps actual herb names to common OCR hallucinations"""
+    """Maps actual herb names to known OCR hallucinations to bypass bad scans."""
     base = herb_name.lower().replace(" ", "")
     aliases = [base]
-    words = herb_name.lower().split()
-    if len(words) > 1:
-        aliases.append(words[-1]) 
-        aliases.append(words[0])  
-        
-    # The Hallucination Dictionary (Built from raw debug data)
+    
+    # Dictionary of specific hallucinations seen in your screenshots
     mapping = {
         "healing sunflower": ["sundlng", "hcalig", "healig", "sunllower", "sunflower"],
         "black iron root": ["ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "ironroot"],
@@ -57,12 +53,12 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # 300% Upscale
-    img_cv = cv2.resize(img_cv, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    # --- MEMORY-SAFE UPSCALING (1.5x instead of 3x) ---
+    img_cv = cv2.resize(img_cv, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
-    # DUAL PASS: Combines normal scan (good for text) with sensitive scan (good for numbers)
-    results = reader.readtext(gray) + reader.readtext(gray, text_threshold=0.2, low_text=0.2)
+    # SINGLE PASS with High Sensitivity (Saves Server RAM)
+    results = reader.readtext(gray, text_threshold=0.2, low_text=0.2)
     results.sort(key=lambda x: x[0][0][1])
 
     found_data = {}
@@ -83,8 +79,8 @@ def decompile_screenshot(image_file, herb_list):
                 num_y = (bbox[0][1] + bbox[2][1]) / 2
                 
                 combined_words = []
-                # Look ahead up to 15 blocks to catch all fragments from the Dual-Pass
-                for j in range(1, 15): 
+                # Look ahead up to 10 blocks
+                for j in range(1, 10): 
                     if i + j < len(results):
                         name_bbox = results[i+j][0]
                         name_x = (name_bbox[0][0] + name_bbox[1][0]) / 2
@@ -93,8 +89,8 @@ def decompile_screenshot(image_file, herb_list):
                         y_diff = name_y - num_y
                         x_diff = abs(name_x - num_x)
                         
-                        if 0 < y_diff < 500 and x_diff < 350: 
-                            # Strip punctuation to create clean strings for matching
+                        # Distance boundaries adjusted for 1.5x upscale
+                        if 0 < y_diff < 250 and x_diff < 150: 
                             word = re.sub(r'[^a-z]', '', results[i+j][1].lower())
                             combined_words.append(word)
                 
@@ -107,13 +103,13 @@ def decompile_screenshot(image_file, herb_list):
                 for herb in herb_list:
                     aliases = get_herb_aliases(herb)
                     for alias in aliases:
-                        # 1. Exact Dictionary Match (Instant win)
+                        # Exact Dictionary Match
                         if alias in combined_str:
                             best_match = herb
                             best_ratio = 1.0
                             break
                         
-                        # 2. Fuzzy Match (In case of a slightly new hallucination)
+                        # Fuzzy Match
                         ratio = difflib.SequenceMatcher(None, alias, combined_str[:len(alias)+4]).ratio()
                         if ratio > best_ratio:
                             best_ratio = ratio
@@ -121,9 +117,7 @@ def decompile_screenshot(image_file, herb_list):
                             
                     if best_ratio == 1.0: break
                 
-                # Dropped to 40% threshold because the Dictionary handles the heavy lifting
                 if best_match and best_ratio > 0.40:
-                    # Only overwrite if we found a higher quantity (prevents Dual-Pass duplication)
                     if best_match not in found_data or quantity > found_data[best_match]:
                         found_data[best_match] = quantity
             except: continue
