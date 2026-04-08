@@ -7,25 +7,28 @@ import difflib
 import re
 
 # -------------------------------
-# 1. MEMORY-SAFE DECOMPILER ENGINE
+# 1. MEMORY-SAFE & LASER-FOCUSED ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['en'], gpu=False)
 
 def get_herb_aliases(herb_name):
-    """Maps actual herb names to known OCR hallucinations to bypass bad scans."""
+    """Maps actual herb names to known OCR hallucinations."""
     base = herb_name.lower().replace(" ", "")
     aliases = [base]
-    
-    # Dictionary of specific hallucinations seen in your screenshots
+    words = herb_name.lower().split()
+    if len(words) > 1:
+        aliases.append(words[-1]) 
+        aliases.append(words[0])
+        
     mapping = {
-        "healing sunflower": ["sundlng", "hcalig", "healig", "sunllower", "sunflower"],
-        "black iron root": ["ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "ironroot"],
-        "blue wave coral herb": ["ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "coralherb", "bluewave"],
-        "thousand year lotus": ["hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "thousand", "yearlotus"],
-        "moonlight jade leaf": ["saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "moonlight", "jadeleaf"],
-        "ironbone grass": ["iobge", "kuboue", "ouboue", "bonbone", "gtass", "ironbone", "grass"],
+        "healing sunflower": ["sundlng", "hcalig", "healig", "sunllower", "sunflower", "sunllowe"],
+        "black iron root": ["ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "ironroot", "bledk"],
+        "blue wave coral herb": ["ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "coralherb", "bluewave", "uallub"],
+        "thousand year lotus": ["hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "thousand", "yearlotus", "iboutnd", "ycclas"],
+        "moonlight jade leaf": ["saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "moonlight", "jadeleaf", "meonligbt", "jadglca"],
+        "ironbone grass": ["iobge", "kuboue", "ouboue", "bonbone", "gtass", "ironbone", "grass", "konbong"],
         "nine suns flame grass": ["ninesuns", "flamegrass"],
         "purple lightning orchid": ["purplelightning", "orchid"],
         "red ginseng": ["ginseng"],
@@ -53,11 +56,11 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # --- MEMORY-SAFE UPSCALING (1.5x instead of 3x) ---
+    # 1.5x Upscale (Memory Safe)
     img_cv = cv2.resize(img_cv, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
-    # SINGLE PASS with High Sensitivity (Saves Server RAM)
+    # High-sensitivity scan
     results = reader.readtext(gray, text_threshold=0.2, low_text=0.2)
     results.sort(key=lambda x: x[0][0][1])
 
@@ -66,7 +69,13 @@ def decompile_screenshot(image_file, herb_list):
     
     for i, (bbox, text, prob) in enumerate(results):
         raw_text_seen.append(text)
-        clean = text.lower().replace(' ', '').replace('i', '1').replace('|', '1').replace('l', '1')
+        clean = text.lower().replace(' ', '')
+        
+        # Intercept the exact OCR glitch where "12" merges into "Z"
+        if 'xz' in clean or 'xlz' in clean or 'xiz' in clean:
+            clean = clean.replace('xz', 'x12').replace('xlz', 'x12').replace('xiz', 'x12')
+            
+        clean = clean.replace('i', '1').replace('|', '1').replace('l', '1')
         clean = clean.replace('s', '5').replace('o', '0').replace('z', '2')
         
         if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
@@ -79,8 +88,7 @@ def decompile_screenshot(image_file, herb_list):
                 num_y = (bbox[0][1] + bbox[2][1]) / 2
                 
                 combined_words = []
-                # Look ahead up to 10 blocks
-                for j in range(1, 10): 
+                for j in range(1, 8): 
                     if i + j < len(results):
                         name_bbox = results[i+j][0]
                         name_x = (name_bbox[0][0] + name_bbox[1][0]) / 2
@@ -89,8 +97,8 @@ def decompile_screenshot(image_file, herb_list):
                         y_diff = name_y - num_y
                         x_diff = abs(name_x - num_x)
                         
-                        # Distance boundaries adjusted for 1.5x upscale
-                        if 0 < y_diff < 250 and x_diff < 150: 
+                        # LASER FOCUS: Tightly bound geometry to prevent grabbing wrong columns/rows
+                        if 0 < y_diff < 160 and x_diff < 100: 
                             word = re.sub(r'[^a-z]', '', results[i+j][1].lower())
                             combined_words.append(word)
                 
@@ -103,19 +111,18 @@ def decompile_screenshot(image_file, herb_list):
                 for herb in herb_list:
                     aliases = get_herb_aliases(herb)
                     for alias in aliases:
-                        # Exact Dictionary Match
                         if alias in combined_str:
                             best_match = herb
                             best_ratio = 1.0
-                            break
+                            break # Break alias loop
                         
-                        # Fuzzy Match
-                        ratio = difflib.SequenceMatcher(None, alias, combined_str[:len(alias)+4]).ratio()
+                        ratio = difflib.SequenceMatcher(None, alias, combined_str).ratio()
                         if ratio > best_ratio:
                             best_ratio = ratio
                             best_match = herb
                             
-                    if best_ratio == 1.0: break
+                    if best_ratio == 1.0: 
+                        break # Break herb list loop to stop overwriting!
                 
                 if best_match and best_ratio > 0.40:
                     if best_match not in found_data or quantity > found_data[best_match]:
