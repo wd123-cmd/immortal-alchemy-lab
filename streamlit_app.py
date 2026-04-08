@@ -3,13 +3,14 @@ import cv2
 import numpy as np
 import easyocr
 from PIL import Image
-import difflib  # NEW: Built-in library for advanced string matching
+import difflib
 
 # -------------------------------
 # 1. ADVANCED DECOMPILER ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
+    # Cache the AI model so it only loads once per server restart
     return easyocr.Reader(['en'], gpu=False)
 
 def decompile_screenshot(image_file, herb_list):
@@ -19,12 +20,13 @@ def decompile_screenshot(image_file, herb_list):
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
     # --- UPSCALING PRE-PROCESSING ---
+    # 200% upscale makes thin game fonts readable
     img_cv = cv2.resize(img_cv, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     contrast = cv2.convertScaleAbs(gray, alpha=1.3, beta=0)
     
     results = reader.readtext(contrast)
-    results.sort(key=lambda x: x[0][0][1])
+    results.sort(key=lambda x: x[0][0][1]) # Sort top-to-bottom
 
     found_data = {}
     raw_text_seen = []
@@ -35,18 +37,17 @@ def decompile_screenshot(image_file, herb_list):
         # NUMBER CLEANING
         clean = text.lower().replace(' ', '').replace('i', '1').replace('|', '1').replace('s', '5').replace('o', '0')
         
-        # If we found a quantity...
         if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
             try:
                 num_str = ''.join(filter(str.isdigit, clean))
                 if not num_str: continue
                 quantity = int(num_str)
                 
+                # Get center coordinates of the number
                 num_x = (bbox[0][0] + bbox[1][0]) / 2
                 num_y = (bbox[0][1] + bbox[2][1]) / 2
                 
-                # --- NEW ALIGNMENT LOGIC ---
-                # Gather ALL text blocks directly under this number into one long string
+                # ALIGNMENT & STITCHING LOGIC
                 combined_words = []
                 for j in range(1, 8): 
                     if i + j < len(results):
@@ -57,37 +58,34 @@ def decompile_screenshot(image_file, herb_list):
                         y_diff = name_y - num_y
                         x_diff = abs(name_x - num_x)
                         
-                        # If it is in the same column and below the number
+                        # Must be below the number and in the same column
                         if 0 < y_diff < 250 and x_diff < 150: 
-                            # Convert accidental numbers back to letters for the name check
                             word = results[i+j][1].lower().replace('1', 'l').replace('5', 's').replace('0', 'o')
                             combined_words.append(word)
                 
                 if not combined_words: continue
                 
-                # Stitch the words together (e.g. "ironbone" + "grass" = "ironbonegrass")
+                # Stitch found words together (e.g. 'black' + 'iron' + 'root')
                 combined_str = "".join(combined_words).replace(" ", "")
-                
                 best_match = None
                 best_ratio = 0.0
                 
                 for herb in herb_list:
                     clean_herb = herb.lower().replace(" ", "")
                     
-                    # 1. Perfect Substring Match (e.g. "ironbonegrass" is in "ironbonegrassmoonlight")
+                    # Exact substring match
                     if clean_herb in combined_str:
                         best_match = herb
                         best_ratio = 1.0
                         break
                         
-                    # 2. Fuzzy Match (In case OCR misspelled a letter)
-                    # We compare the herb against the first part of our stitched string
+                    # Fuzzy match (SequenceMatcher handles typos nicely)
                     ratio = difflib.SequenceMatcher(None, clean_herb, combined_str[:len(clean_herb)+2]).ratio()
                     if ratio > best_ratio:
                         best_ratio = ratio
                         best_match = herb
                 
-                # Only accept the match if it's over 75% confident
+                # 75% confidence threshold to prevent false positives
                 if best_match and best_ratio > 0.75:
                     if best_match not in found_data or quantity > found_data[best_match]:
                         found_data[best_match] = quantity
@@ -157,7 +155,7 @@ def get_db():
     }
 
 # -------------------------------
-# 3. APP STYLING & INIT
+# 3. APP STYLING & STATE
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
@@ -177,8 +175,13 @@ st.markdown("""<style>
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
 
+# Initialize Session State Variables
 for h in all_herbs:
-    if f"i_{h}" not in st.session_state: st.session_state[f"i_{h}"] = 0
+    if f"i_{h}" not in st.session_state: 
+        st.session_state[f"i_{h}"] = 0
+
+if 'debug_log' not in st.session_state:
+    st.session_state['debug_log'] = []
 
 # -------------------------------
 # 4. MAIN INTERFACE TABS
@@ -194,23 +197,32 @@ with tab2:
             with st.spinner("Upscaling and Decoding Spirit Herbs..."):
                 found, raw_text = decompile_screenshot(ss_file, all_herbs)
                 
+                # Save debug log to state so it persists
+                st.session_state['debug_log'] = raw_text
+                
                 if found:
                     for herb, qty in found.items(): 
-                        st.session_state[f"i_{herb}"] = qty
-                    st.success(f"Successfully decoded {len(found)} herbs!")
+                        # Adds to current inventory instead of overwriting
+                        st.session_state[f"i_{herb}"] += qty
+                        
+                    st.success(f"Successfully added {len(found)} herbs to your chest!")
                     st.rerun()
                 else: 
                     st.error("Reader failed to match herbs.")
-                
-                with st.expander("🛠️ View Raw AI Data (Debug)"):
-                    st.write("This is exactly what the AI saw in the image:")
-                    st.write(raw_text)
+
+    # Show debug log if it exists in session state
+    if st.session_state['debug_log']:
+        with st.expander("🛠️ View Raw AI Data (Debug)"):
+            st.write("This is exactly what the AI saw in the last scan:")
+            st.write(st.session_state['debug_log'])
 
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
         if st.button("🧹 Clear All Stock"):
-            for h in all_herbs: st.session_state[f"i_{h}"] = 0
+            for h in all_herbs: 
+                st.session_state[f"i_{h}"] = 0
+            st.session_state['debug_log'] = []
             st.rerun()
     with c2: 
         handcrafted = st.toggle("✨ Handcrafted (3x)", value=False)
