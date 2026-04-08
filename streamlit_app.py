@@ -7,7 +7,7 @@ import difflib
 import re
 
 # -------------------------------
-# 1. THE VERTICAL RAYCASTER ENGINE
+# 1. THE BULLETPROOF RAYCASTER ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
@@ -51,7 +51,15 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # Memory-Safe 1.5x Upscale
+    # --- 🛡️ RAM SAFETY SHIELD ---
+    # Shrinks massive full-screen screenshots so they don't crash Streamlit
+    height, width = img_cv.shape[:2]
+    max_dimension = 1000
+    if width > max_dimension or height > max_dimension:
+        safe_scale = max_dimension / max(width, height)
+        img_cv = cv2.resize(img_cv, None, fx=safe_scale, fy=safe_scale, interpolation=cv2.INTER_AREA)
+    
+    # Memory-Safe 1.5x Upscale for reading
     img_cv = cv2.resize(img_cv, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
