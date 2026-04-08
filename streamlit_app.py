@@ -7,7 +7,7 @@ import difflib
 import re
 
 # -------------------------------
-# 1. MEMORY-SAFE & WORD-ISOLATED ENGINE
+# 1. MEMORY-SAFE & ISOLATED ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
@@ -18,7 +18,7 @@ def get_herb_aliases(herb_name):
     base = herb_name.lower().replace(" ", "")
     aliases = [base]
     
-    # Add individual words as valid standalone aliases (e.g., "moonlight")
+    # Add individual words to catch fragmented reads
     for w in herb_name.lower().split():
         if len(w) > 3: 
             aliases.append(w)
@@ -57,7 +57,7 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # 1.5x Upscale (Memory Safe)
+    # 1.5x Upscale
     img_cv = cv2.resize(img_cv, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
@@ -90,7 +90,7 @@ def decompile_screenshot(image_file, herb_list):
                 num_y = (bbox[0][1] + bbox[2][1]) / 2
                 
                 valid_words = []
-                for j in range(1, 10): 
+                for j in range(1, 12): 
                     if i + j < len(results):
                         name_bbox = results[i+j][0]
                         name_x = (name_bbox[0][0] + name_bbox[1][0]) / 2
@@ -99,26 +99,22 @@ def decompile_screenshot(image_file, herb_list):
                         y_diff = name_y - num_y
                         x_diff = abs(name_x - num_x)
                         
-                        # Safe Bounding Box: Only checks words physically below the number
-                        if 0 < y_diff < 260 and x_diff < 100: 
+                        # THE FIX: Tightened horizontal limit to 50px to prevent cross-column contamination!
+                        if 0 < y_diff < 200 and x_diff < 50: 
                             word = re.sub(r'[^a-z]', '', results[i+j][1].lower())
-                            if len(word) > 2: # Ignore 1 or 2 letter artifacts
+                            if len(word) > 2: 
                                 valid_words.append(word)
                 
                 if not valid_words: continue
                 
                 best_match = None
                 
-                # WORD-BY-WORD CHECKER
                 for herb in herb_list:
                     aliases = get_herb_aliases(herb)
                     for word in valid_words:
-                        # 1. Exact alias match (e.g., word is "bledk")
                         if word in aliases:
                             best_match = herb
                             break
-                        
-                        # 2. Forgiving Fuzzy Match (e.g., word is "healiig" vs alias "healing")
                         for alias in aliases:
                             if len(alias) > 4 and difflib.SequenceMatcher(None, word, alias).ratio() > 0.80:
                                 best_match = herb
