@@ -7,11 +7,49 @@ import difflib
 import re
 
 # -------------------------------
-# 1. HYPER-SENSITIVE DECOMPILER ENGINE
+# 1. DUAL-PASS DECOMPILER ENGINE
 # -------------------------------
 @st.cache_resource
 def load_ocr():
     return easyocr.Reader(['en'], gpu=False)
+
+def get_herb_aliases(herb_name):
+    """Maps actual herb names to common OCR hallucinations"""
+    base = herb_name.lower().replace(" ", "")
+    aliases = [base]
+    words = herb_name.lower().split()
+    if len(words) > 1:
+        aliases.append(words[-1]) 
+        aliases.append(words[0])  
+        
+    # The Hallucination Dictionary (Built from raw debug data)
+    mapping = {
+        "healing sunflower": ["sundlng", "hcalig", "healig", "sunllower", "sunflower"],
+        "black iron root": ["ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "ironroot"],
+        "blue wave coral herb": ["ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "coralherb", "bluewave"],
+        "thousand year lotus": ["hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "thousand", "yearlotus"],
+        "moonlight jade leaf": ["saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "moonlight", "jadeleaf"],
+        "ironbone grass": ["iobge", "kuboue", "ouboue", "bonbone", "gtass", "ironbone", "grass"],
+        "nine suns flame grass": ["ninesuns", "flamegrass"],
+        "purple lightning orchid": ["purplelightning", "orchid"],
+        "red ginseng": ["ginseng"],
+        "bitter jade grass": ["bitterjade"],
+        "cloud mist herb": ["cloudmist", "mistherb"],
+        "spirit spring herb": ["spiritspring", "springherb"],
+        "dandelion of qi": ["dandelion", "ofqi"],
+        "seven star flower": ["sevenstar", "starflower"],
+        "starlight dew herb": ["starlight", "dewherb"],
+        "heavenly spirit vine": ["heavenly", "spiritvine"],
+        "mountain green herb": ["mountain", "greenherb"],
+        "wild spirit grass": ["wildspirit"],
+        "azure serpent grass": ["azureserpent"],
+        "wild bitter grass": ["wildbitter"]
+    }
+    
+    if herb_name.lower() in mapping:
+        aliases.extend(mapping[herb_name.lower()])
+        
+    return list(set(aliases))
 
 def decompile_screenshot(image_file, herb_list):
     reader = load_ocr()
@@ -19,39 +57,34 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # --- 300% UPSCALING ---
+    # 300% Upscale
     img_cv = cv2.resize(img_cv, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
-    # --- HYPER-SENSITIVE SCAN ---
-    # text_threshold and low_text are lowered so it stops deleting the "x12"
-    results = reader.readtext(gray, text_threshold=0.2, low_text=0.2)
-    results.sort(key=lambda x: x[0][0][1]) # Sort top-to-bottom
+    # DUAL PASS: Combines normal scan (good for text) with sensitive scan (good for numbers)
+    results = reader.readtext(gray) + reader.readtext(gray, text_threshold=0.2, low_text=0.2)
+    results.sort(key=lambda x: x[0][0][1])
 
     found_data = {}
     raw_text_seen = []
     
     for i, (bbox, text, prob) in enumerate(results):
         raw_text_seen.append(text)
-        
-        # NUMBER CLEANING
         clean = text.lower().replace(' ', '').replace('i', '1').replace('|', '1').replace('l', '1')
         clean = clean.replace('s', '5').replace('o', '0').replace('z', '2')
         
-        # Look for a quantity marker
         if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
             try:
                 num_str = ''.join(filter(str.isdigit, clean))
                 if not num_str: continue
                 quantity = int(num_str)
                 
-                # Get the center coordinates of the number box
                 num_x = (bbox[0][0] + bbox[1][0]) / 2
                 num_y = (bbox[0][1] + bbox[2][1]) / 2
                 
                 combined_words = []
-                # Look ahead up to 10 blocks to catch highly fragmented words
-                for j in range(1, 10): 
+                # Look ahead up to 15 blocks to catch all fragments from the Dual-Pass
+                for j in range(1, 15): 
                     if i + j < len(results):
                         name_bbox = results[i+j][0]
                         name_x = (name_bbox[0][0] + name_bbox[1][0]) / 2
@@ -60,36 +93,37 @@ def decompile_screenshot(image_file, herb_list):
                         y_diff = name_y - num_y
                         x_diff = abs(name_x - num_x)
                         
-                        # Scaled up distances for the 300% image size
                         if 0 < y_diff < 500 and x_diff < 350: 
-                            word = results[i+j][1].lower()
+                            # Strip punctuation to create clean strings for matching
+                            word = re.sub(r'[^a-z]', '', results[i+j][1].lower())
                             combined_words.append(word)
                 
                 if not combined_words: continue
-                
-                # Stitch words and strip EVERYTHING except basic letters
                 combined_str = "".join(combined_words)
-                combined_str = re.sub(r'[^a-z]', '', combined_str)
                 
                 best_match = None
                 best_ratio = 0.0
                 
                 for herb in herb_list:
-                    clean_herb = re.sub(r'[^a-z]', '', herb.lower())
-                    
-                    if clean_herb in combined_str:
-                        best_match = herb
-                        best_ratio = 1.0
-                        break
+                    aliases = get_herb_aliases(herb)
+                    for alias in aliases:
+                        # 1. Exact Dictionary Match (Instant win)
+                        if alias in combined_str:
+                            best_match = herb
+                            best_ratio = 1.0
+                            break
                         
-                    # Fuzzy match to catch wild hallucinations like "kubouegtass"
-                    ratio = difflib.SequenceMatcher(None, clean_herb, combined_str[:len(clean_herb)+4]).ratio()
-                    if ratio > best_ratio:
-                        best_ratio = ratio
-                        best_match = herb
+                        # 2. Fuzzy Match (In case of a slightly new hallucination)
+                        ratio = difflib.SequenceMatcher(None, alias, combined_str[:len(alias)+4]).ratio()
+                        if ratio > best_ratio:
+                            best_ratio = ratio
+                            best_match = herb
+                            
+                    if best_ratio == 1.0: break
                 
-                # Dropped to 35% confidence because of the severe OCR scrambling
-                if best_match and best_ratio > 0.35:
+                # Dropped to 40% threshold because the Dictionary handles the heavy lifting
+                if best_match and best_ratio > 0.40:
+                    # Only overwrite if we found a higher quantity (prevents Dual-Pass duplication)
                     if best_match not in found_data or quantity > found_data[best_match]:
                         found_data[best_match] = quantity
             except: continue
@@ -101,56 +135,20 @@ def decompile_screenshot(image_file, herb_list):
 # -------------------------------
 def get_db():
     return {
-        "Nine Yang Pill": [
-            {"tier": "Standard", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "ironbone grass": 2, "crimson flame mushroom": 1}, "qi": 92},
-            {"tier": "Heavenly", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "black iron root": 2, "crimson flame mushroom": 1}, "qi": 120}
-        ],
-        "Jade Tide Pill": [
-            {"tier": "Standard", "ingredients": {"blue wave coral herb": 2, "moonlight jade leaf": 2, "red ginseng": 1, "bitter jade grass": 1}, "qi": 150},
-            {"tier": "Heavenly", "ingredients": {"blue wave coral herb": 2, "black iron root": 1, "crimson flame mushroom": 1, "bitter jade grass": 2}, "qi": 162}
-        ],
+        "Nine Yang Pill": [{"tier": "Standard", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "ironbone grass": 2, "crimson flame mushroom": 1}, "qi": 92}, {"tier": "Heavenly", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "black iron root": 2, "crimson flame mushroom": 1}, "qi": 120}],
+        "Jade Tide Pill": [{"tier": "Standard", "ingredients": {"blue wave coral herb": 2, "moonlight jade leaf": 2, "red ginseng": 1, "bitter jade grass": 1}, "qi": 150}, {"tier": "Heavenly", "ingredients": {"blue wave coral herb": 2, "black iron root": 1, "crimson flame mushroom": 1, "bitter jade grass": 2}, "qi": 162}],
         "Stormheart Pill": [{"tier": "Heavenly", "ingredients": {"cloud mist herb": 4, "spirit spring herb": 2}, "qi": 225}],
         "Lotus Nirvana Pill": [{"tier": "Standard", "ingredients": {"thousand year lotus": 6}, "qi": 50}],
-        "Starborn Agility Pill": [
-            {"tier": "Imperfect", "ingredients": {"dandelion of qi": 1, "seven star flower": 2, "blue wave coral herb": 1, "cloud mist herb": 1, "spirit spring herb": 1}, "qi": 115},
-            {"tier": "Heavenly", "ingredients": {"seven star flower": 5, "cloud mist herb": 1}, "qi": 230}
-        ],
-        "Dragon Pulse Pill": [
-            {"tier": "Imperfect", "ingredients": {"blue wave coral herb": 2, "cloud mist herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 80},
-            {"tier": "Heavenly (V1)", "ingredients": {"blue wave coral herb": 2, "cloud mist herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 160},
-            {"tier": "Heavenly (V2)", "ingredients": {"blue wave coral herb": 2, "silverleaf herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 168}
-        ],
+        "Starborn Agility Pill": [{"tier": "Imperfect", "ingredients": {"dandelion of qi": 1, "seven star flower": 2, "blue wave coral herb": 1, "cloud mist herb": 1, "spirit spring herb": 1}, "qi": 115}, {"tier": "Heavenly", "ingredients": {"seven star flower": 5, "cloud mist herb": 1}, "qi": 230}],
+        "Dragon Pulse Pill": [{"tier": "Imperfect", "ingredients": {"blue wave coral herb": 2, "cloud mist herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 80}, {"tier": "Heavenly (V1)", "ingredients": {"blue wave coral herb": 2, "cloud mist herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 160}, {"tier": "Heavenly (V2)", "ingredients": {"blue wave coral herb": 2, "silverleaf herb": 1, "spirit spring herb": 1, "ironbone grass": 2}, "qi": 168}],
         "Void Clarity Pill": [{"tier": "Standard", "ingredients": {"starlight dew herb": 2, "cloud mist herb": 2, "heavenly spirit vine": 1, "bitter jade grass": 1}, "qi": 170}],
-        "Celestial Harmony Pill": [
-            {"tier": "Imperfect", "ingredients": {"silverleaf herb": 1, "seven star flower": 1, "mountain green herb": 1, "qi dandelion": 1, "wild spirit grass": 2}, "qi": 90},
-            {"tier": "Heavenly", "ingredients": {"thousand year lotus": 1, "silverleaf herb": 1, "seven star flower": 3, "moonlight jade leaf": 1}, "qi": 236}
-        ],
-        "Seven Star Enlightenment": [
-            {"tier": "Imperfect", "ingredients": {"spirit spring herb": 1, "seven star flower": 2, "starlight dew herb": 2, "silverleaf herb": 1}, "qi": 125},
-            {"tier": "Heavenly (Lotus)", "ingredients": {"thousand year lotus": 2, "blue wave coral herb": 1, "heavenly spirit vine": 1, "starlight dew herb": 2}, "qi": 285},
-            {"tier": "Heavenly (Pure)", "ingredients": {"heavenly spirit vine": 1, "starlight dew herb": 5}, "qi": 295}
-        ],
-        "Dragon Essence Pill": [
-            {"tier": "Standard", "ingredients": {"azure serpent grass": 1, "purple lightning orchid": 1, "nine suns flame grass": 1, "crimson flame mushroom": 2, "cloud mist herb": 1}, "qi": 0, "spec": "18% Lifespan"},
-            {"tier": "Heavenly", "ingredients": {"heavenly spirit vine": 2, "purple lightning orchid": 1, "nine suns flame grass": 1, "moonlight jade leaf": 1}, "qi": 0, "spec": "24% Lifespan"}
-        ],
-        "Sun Roses Rebirth": [
-            {"tier": "Vit V1", "ingredients": {"wild bitter grass": 2, "red ginseng": 1, "healing sunflower": 2, "mountain green herb": 1}, "qi": 0, "spec": "20% Vitality (Perm)"},
-            {"tier": "Vit V2", "ingredients": {"mountain green herb": 3, "healing sunflower": 3}, "qi": 0, "spec": "20% Vitality (Perm)"},
-            {"tier": "Vit V3", "ingredients": {"healing sunflower": 2, "ironbone grass": 2, "red ginseng": 1, "crimson flame mushroom": 1}, "qi": 0, "spec": "45% Vitality (Perm)"},
-            {"tier": "Vit V4", "ingredients": {"healing sunflower": 2, "ironbone grass": 3, "red ginseng": 1}, "qi": 0, "spec": "41% Vitality (Perm)"}
-        ],
+        "Celestial Harmony Pill": [{"tier": "Imperfect", "ingredients": {"silverleaf herb": 1, "seven star flower": 1, "mountain green herb": 1, "qi dandelion": 1, "wild spirit grass": 2}, "qi": 90}, {"tier": "Heavenly", "ingredients": {"thousand year lotus": 1, "silverleaf herb": 1, "seven star flower": 3, "moonlight jade leaf": 1}, "qi": 236}],
+        "Seven Star Enlightenment": [{"tier": "Imperfect", "ingredients": {"spirit spring herb": 1, "seven star flower": 2, "starlight dew herb": 2, "silverleaf herb": 1}, "qi": 125}, {"tier": "Heavenly (Lotus)", "ingredients": {"thousand year lotus": 2, "blue wave coral herb": 1, "heavenly spirit vine": 1, "starlight dew herb": 2}, "qi": 285}, {"tier": "Heavenly (Pure)", "ingredients": {"heavenly spirit vine": 1, "starlight dew herb": 5}, "qi": 295}],
+        "Dragon Essence Pill": [{"tier": "Standard", "ingredients": {"azure serpent grass": 1, "purple lightning orchid": 1, "nine suns flame grass": 1, "crimson flame mushroom": 2, "cloud mist herb": 1}, "qi": 0, "spec": "18% Lifespan"}, {"tier": "Heavenly", "ingredients": {"heavenly spirit vine": 2, "purple lightning orchid": 1, "nine suns flame grass": 1, "moonlight jade leaf": 1}, "qi": 0, "spec": "24% Lifespan"}],
+        "Sun Roses Rebirth": [{"tier": "Vit V1", "ingredients": {"wild bitter grass": 2, "red ginseng": 1, "healing sunflower": 2, "mountain green herb": 1}, "qi": 0, "spec": "20% Vitality (Perm)"}, {"tier": "Vit V2", "ingredients": {"mountain green herb": 3, "healing sunflower": 3}, "qi": 0, "spec": "20% Vitality (Perm)"}, {"tier": "Vit V3", "ingredients": {"healing sunflower": 2, "ironbone grass": 2, "red ginseng": 1, "crimson flame mushroom": 1}, "qi": 0, "spec": "45% Vitality (Perm)"}, {"tier": "Vit V4", "ingredients": {"healing sunflower": 2, "ironbone grass": 3, "red ginseng": 1}, "qi": 0, "spec": "41% Vitality (Perm)"}],
         "Phoenix Ember Pill": [{"tier": "Standard", "ingredients": {"crimson flame mushroom": 1, "silverleaf herb": 1, "mountain green herb": 1, "qi dandelion": 2, "spirit spring herb": 1}, "qi": 0, "spec": "70% Vit / 40% Spd"}],
-        "Mistveil Focus Pill": [
-            {"tier": "Standard", "ingredients": {"silverleaf herb": 3, "spirit spring herb": 3}, "qi": 238},
-            {"tier": "Focus-V2", "ingredients": {"silverleaf herb": 3, "spirit spring herb": 2, "seven star flower": 1}, "qi": 245},
-            {"tier": "Focus-V3", "ingredients": {"cloud mist herb": 2, "spirit spring herb": 2, "starlight dew herb": 1, "heavenly spirit vine": 1}, "qi": 260}
-        ],
-        "Concentration Pill": [
-            {"tier": "Dandelion Mix", "ingredients": {"seven star flower": 1, "azure serpent grass": 3, "dandelion of qi": 2}, "qi": 100},
-            {"tier": "Pure Mix", "ingredients": {"seven star flower": 3, "azure serpent grass": 3}, "qi": 100},
-            {"tier": "Spring Mix", "ingredients": {"seven star flower": 1, "azure serpent grass": 3, "spirit spring herb": 2}, "qi": 100}
-        ],
+        "Mistveil Focus Pill": [{"tier": "Standard", "ingredients": {"silverleaf herb": 3, "spirit spring herb": 3}, "qi": 238}, {"tier": "Focus-V2", "ingredients": {"silverleaf herb": 3, "spirit spring herb": 2, "seven star flower": 1}, "qi": 245}, {"tier": "Focus-V3", "ingredients": {"cloud mist herb": 2, "spirit spring herb": 2, "starlight dew herb": 1, "heavenly spirit vine": 1}, "qi": 260}],
+        "Concentration Pill": [{"tier": "Dandelion Mix", "ingredients": {"seven star flower": 1, "azure serpent grass": 3, "dandelion of qi": 2}, "qi": 100}, {"tier": "Pure Mix", "ingredients": {"seven star flower": 3, "azure serpent grass": 3}, "qi": 100}, {"tier": "Spring Mix", "ingredients": {"seven star flower": 1, "azure serpent grass": 3, "spirit spring herb": 2}, "qi": 100}],
         "Ironclad Resolve": [{"tier": "Heavenly", "ingredients": {"silverleaf herb": 1, "moonlight jade leaf": 1, "spirit spring herb": 1, "crimson flame mushroom": 1, "black iron root": 2}, "qi": 0, "spec": "Perm Str/Vit"}],
         "Tideborn Vigor": [{"tier": "Heavenly", "ingredients": {"wild spirit grass": 1, "wild bitter grass": 1, "red ginseng": 1, "silverleaf herb": 1, "mountain green herb": 1, "qi dandelion": 1}, "qi": 0, "spec": "Vit/Str Boost"}],
         "Blazewind Pill": [{"tier": "Heavenly", "ingredients": {"crimson flame mushroom": 2, "purple lightning orchid": 3, "wild spirit grass": 1}, "qi": 0, "spec": "Perm Spd/Str"}],
