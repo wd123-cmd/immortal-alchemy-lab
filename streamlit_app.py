@@ -14,28 +14,31 @@ def load_ocr():
     return easyocr.Reader(['en'], gpu=False)
 
 def get_herb_aliases(herb_name):
+    """Maps actual herb names to known OCR hallucinations."""
     aliases = []
     mapping = {
-        "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag", "hlcaling", "hedig", "heali4g", "heallig", "bzealig", "sqnllowcc"],
-        "black iron root": ["black", "ironroot", "ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "bledk", "koro", "koroo", "bled", "korooz", "@ladk", "jaurooz"],
-        "blue wave coral herb": ["blue", "wave", "coral", "ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "uallub", "qbal", "ualleb", "dallazz", "blwu", "wlaw", "cucallld"],
-        "thousand year lotus": ["thousand", "lotus", "hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "iboutnd", "ycclas", "yatoud", "yac", "obuesacd"],
-        "moonlight jade leaf": ["moonlight", "jadeleaf", "saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "meonligbt", "jadglca", "saal", "meuuligbt", "saglti", "eeeclgb", "adulal", "jaclu"],
-        "ironbone grass": ["ironbone", "gtass", "iobge", "kuboue", "ouboue", "bonbone", "konbong", "iabssa", "gcass", "iabge", "leuboue"],
+        "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag", "hlcaling", "hedig", "heali4g", "heallig", "bzealig", "sqnllowcc", "sannhg", "ealv"],
+        "black iron root": ["black", "ironroot", "ionadoot", "bladz", "bonroor", "bouroot", "bladk", "kourooc", "bledk", "koro", "koroo", "bled", "korooz", "@ladk", "jaurooz", "iecat", "ko", "rooz"],
+        "blue wave coral herb": ["blue", "wave", "coral", "ballaz", "coaileb", "ualheb", "oalhub", "blugwav", "blugwavg", "uallub", "qbal", "ualleb", "dallazz", "blwu", "wlaw", "cucallld", "sazglxb"],
+        "thousand year lotus": ["thousand", "lotus", "hatsud", "yealoug", "yeaclos", "ibousand", "tbousand", "uouard", "iboutnd", "ycclas", "yatoud", "yac", "obuesacd", "yatoud"],
+        "moonlight jade leaf": ["moonlight", "jadeleaf", "saglui", "mopnlight", "meccligbt", "jadalzar", "jadeleal", "jadelea", "mooclight", "meonligbt", "jadglca", "saal", "meuuligbt", "saglti", "eeeclgb", "adulal", "jaclu", "8na3z", "saglti"],
+        "ironbone grass": ["ironbone", "gtass", "iobge", "kuboue", "ouboue", "bonbone", "konbong", "iabssa", "gcass", "iabge", "leuboue", "laza", "otz"],
         "nine suns flame grass": ["ninesuns", "flamegrass"],
         "purple lightning orchid": ["purple", "orchid", "lightning", "bistadattg", "ruplg", "lipnnidg", "eunte"],
         "red ginseng": ["ginseng", "red"],
         "bitter jade grass": ["bitter", "jadegrass"],
-        "cloud mist herb": ["cloud", "mist", "mistherb", "candmse", "hedb", "dudsb"],
+        "cloud mist herb": ["cloud", "mist", "mistherb", "candmse", "hedb", "dudsb", "hub"],
         "spirit spring herb": ["spiritspring", "springherb"],
         "dandelion of qi": ["dandelion", "ofqi"],
-        "seven star flower": ["sevenstar", "starflower", "setcnsaac", "flower", "sevez", "sur"],
+        "seven star flower": ["sevenstar", "starflower", "setcnsaac", "flower", "sevez", "sur", "8lst", "fte"],
         "starlight dew herb": ["starlight", "dewherb"],
         "heavenly spirit vine": ["heavenly", "spiritvine"],
         "mountain green herb": ["mountain", "greenherb"],
         "wild spirit grass": ["wildspirit", "wild", "budspide", "gas3", "wnika", "spinft", "eapnn"],
         "azure serpent grass": ["azure", "serpent"],
-        "wild bitter grass": ["wildbitter", "bittergrass"]
+        "wild bitter grass": ["wildbitter", "bittergrass"],
+        "silverleaf herb": ["silverleaf", "silver"],
+        "crimson flame mushroom": ["crimson", "flame", "mushroom"]
     }
     if herb_name.lower() in mapping:
         aliases.extend(mapping[herb_name.lower()])
@@ -52,7 +55,7 @@ def decompile_screenshot(image_file, herb_list):
     scale = 1000 / w
     img_cv = cv2.resize(img_cv, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
     
-    # 🧪 Contrast Stretching (Makes text pop without shredding it)
+    # 🧪 Contrast Stretching
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     xp = [0, 64, 128, 192, 255]
     fp = [0, 16, 128, 240, 255]
@@ -121,21 +124,39 @@ def decompile_screenshot(image_file, herb_list):
     return found_data, raw_text_seen
 
 # -------------------------------
-# 2. APP UI & LOGIC
+# 2. FULL RECIPE DATABASE (Restored)
 # -------------------------------
 def get_db():
     return {
-        "Nine Yang Pill": [{"tier": "Standard", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "ironbone grass": 2, "crimson flame mushroom": 1}, "qi": 92}, {"tier": "Heavenly", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "black iron root": 2, "crimson flame mushroom": 1}, "qi": 120}],
-        "Jade Tide Pill": [{"tier": "Standard", "ingredients": {"blue wave coral herb": 2, "moonlight jade leaf": 2, "red ginseng": 1, "bitter jade grass": 1}, "qi": 150}, {"tier": "Heavenly", "ingredients": {"blue wave coral herb": 2, "black iron root": 1, "crimson flame mushroom": 1, "bitter jade grass": 2}, "qi": 162}],
+        "Nine Yang Pill": [
+            {"tier": "Standard", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "ironbone grass": 2, "crimson flame mushroom": 1}, "qi": 92},
+            {"tier": "Heavenly", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "black iron root": 2, "crimson flame mushroom": 1}, "qi": 120}
+        ],
+        "Jade Tide Pill": [
+            {"tier": "Standard", "ingredients": {"blue wave coral herb": 2, "moonlight jade leaf": 2, "red ginseng": 1, "bitter jade grass": 1}, "qi": 150},
+            {"tier": "Heavenly", "ingredients": {"blue wave coral herb": 2, "black iron root": 1, "crimson flame mushroom": 1, "bitter jade grass": 2}, "qi": 162}
+        ],
         "Stormheart Pill": [{"tier": "Heavenly", "ingredients": {"cloud mist herb": 4, "spirit spring herb": 2}, "qi": 225}],
         "Lotus Nirvana Pill": [{"tier": "Standard", "ingredients": {"thousand year lotus": 6}, "qi": 50}],
-        "Starborn Agility Pill": [{"tier": "Imperfect", "ingredients": {"dandelion of qi": 1, "seven star flower": 2, "blue wave coral herb": 1, "cloud mist herb": 1, "spirit spring herb": 1}, "qi": 115}, {"tier": "Heavenly", "ingredients": {"seven star flower": 5, "cloud mist herb": 1}, "qi": 230}],
-        "Seven Star Enlightenment": [{"tier": "Heavenly (Lotus)", "ingredients": {"thousand year lotus": 2, "blue wave coral herb": 1, "heavenly spirit vine": 1, "starlight dew herb": 2}, "qi": 285}, {"tier": "Heavenly (Pure)", "ingredients": {"heavenly spirit vine": 1, "starlight dew herb": 5}, "qi": 295}],
-        "Dragon Essence Pill": [{"tier": "Standard", "ingredients": {"azure serpent grass": 1, "purple lightning orchid": 1, "nine suns flame grass": 1, "crimson flame mushroom": 2, "cloud mist herb": 1}, "qi": 0, "spec": "18% Lifespan"}, {"tier": "Heavenly", "ingredients": {"heavenly spirit vine": 2, "purple lightning orchid": 1, "nine suns flame grass": 1, "moonlight jade leaf": 1}, "qi": 0, "spec": "24% Lifespan"}],
+        "Starborn Agility Pill": [
+            {"tier": "Imperfect", "ingredients": {"dandelion of qi": 1, "seven star flower": 2, "blue wave coral herb": 1, "cloud mist herb": 1, "spirit spring herb": 1}, "qi": 115},
+            {"tier": "Heavenly", "ingredients": {"seven star flower": 5, "cloud mist herb": 1}, "qi": 230}
+        ],
+        "Seven Star Enlightenment": [
+            {"tier": "Heavenly (Lotus)", "ingredients": {"thousand year lotus": 2, "blue wave coral herb": 1, "heavenly spirit vine": 1, "starlight dew herb": 2}, "qi": 285},
+            {"tier": "Heavenly (Pure)", "ingredients": {"heavenly spirit vine": 1, "starlight dew herb": 5}, "qi": 295}
+        ],
+        "Dragon Essence Pill": [
+            {"tier": "Standard", "ingredients": {"azure serpent grass": 1, "purple lightning orchid": 1, "nine suns flame grass": 1, "crimson flame mushroom": 2, "cloud mist herb": 1}, "qi": 0, "spec": "18% Lifespan"},
+            {"tier": "Heavenly", "ingredients": {"heavenly spirit vine": 2, "purple lightning orchid": 1, "nine suns flame grass": 1, "moonlight jade leaf": 1}, "qi": 0, "spec": "24% Lifespan"}
+        ],
         "Sun Roses Rebirth": [{"tier": "Vit V3", "ingredients": {"healing sunflower": 2, "ironbone grass": 2, "red ginseng": 1, "crimson flame mushroom": 1}, "qi": 0, "spec": "45% Vitality (Perm)"}],
         "Soul Replenishing": [{"tier": "Heavenly", "ingredients": {"healing sunflower": 2, "red ginseng": 1, "ironbone grass": 2, "seven star flower": 1}, "qi": 0, "spec": "12% Lifespan (Perm)"}]
     }
 
+# -------------------------------
+# 3. APP UI
+# -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 st.markdown("<style>.stApp { background: #0a0c10; color: white; }</style>", unsafe_allow_html=True)
 
