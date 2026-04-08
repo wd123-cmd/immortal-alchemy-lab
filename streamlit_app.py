@@ -19,14 +19,21 @@ def decompile_screenshot(image_file, herb_list):
     img_array = np.array(image)
     img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
     
-    # --- UPSCALING PRE-PROCESSING ---
-    # 200% upscale makes thin game fonts readable
+    # --- 1. UPSCALING ---
     img_cv = cv2.resize(img_cv, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-    contrast = cv2.convertScaleAbs(gray, alpha=1.3, beta=0)
     
-    results = reader.readtext(contrast)
-    results.sort(key=lambda x: x[0][0][1]) # Sort top-to-bottom
+    # --- 2. COLOR ISOLATION ---
+    lower_white = np.array([160, 160, 160])
+    upper_white = np.array([255, 255, 255])
+    mask = cv2.inRange(img_cv, lower_white, upper_white)
+    
+    kernel = np.ones((2,2), np.uint8)
+    mask = cv2.dilate(mask, kernel, iterations=1)
+    
+    inverted_mask = cv2.bitwise_not(mask)
+    
+    results = reader.readtext(inverted_mask)
+    results.sort(key=lambda x: x[0][0][1])
 
     found_data = {}
     raw_text_seen = []
@@ -35,7 +42,8 @@ def decompile_screenshot(image_file, herb_list):
         raw_text_seen.append(text)
         
         # NUMBER CLEANING
-        clean = text.lower().replace(' ', '').replace('i', '1').replace('|', '1').replace('s', '5').replace('o', '0')
+        clean = text.lower().replace(' ', '').replace('i', '1').replace('|', '1').replace('l', '1')
+        clean = clean.replace('s', '5').replace('o', '0').replace('z', '2')
         
         if ('x' in clean or any(c.isdigit() for c in clean)) and len(clean) < 6:
             try:
@@ -43,11 +51,9 @@ def decompile_screenshot(image_file, herb_list):
                 if not num_str: continue
                 quantity = int(num_str)
                 
-                # Get center coordinates of the number
                 num_x = (bbox[0][0] + bbox[1][0]) / 2
                 num_y = (bbox[0][1] + bbox[2][1]) / 2
                 
-                # ALIGNMENT & STITCHING LOGIC
                 combined_words = []
                 for j in range(1, 8): 
                     if i + j < len(results):
@@ -58,14 +64,12 @@ def decompile_screenshot(image_file, herb_list):
                         y_diff = name_y - num_y
                         x_diff = abs(name_x - num_x)
                         
-                        # Must be below the number and in the same column
-                        if 0 < y_diff < 250 and x_diff < 150: 
-                            word = results[i+j][1].lower().replace('1', 'l').replace('5', 's').replace('0', 'o')
+                        if 0 < y_diff < 300 and x_diff < 200: 
+                            word = results[i+j][1].lower()
                             combined_words.append(word)
                 
                 if not combined_words: continue
                 
-                # Stitch found words together (e.g. 'black' + 'iron' + 'root')
                 combined_str = "".join(combined_words).replace(" ", "")
                 best_match = None
                 best_ratio = 0.0
@@ -73,20 +77,17 @@ def decompile_screenshot(image_file, herb_list):
                 for herb in herb_list:
                     clean_herb = herb.lower().replace(" ", "")
                     
-                    # Exact substring match
                     if clean_herb in combined_str:
                         best_match = herb
                         best_ratio = 1.0
                         break
                         
-                    # Fuzzy match (SequenceMatcher handles typos nicely)
-                    ratio = difflib.SequenceMatcher(None, clean_herb, combined_str[:len(clean_herb)+2]).ratio()
+                    ratio = difflib.SequenceMatcher(None, clean_herb, combined_str).ratio()
                     if ratio > best_ratio:
                         best_ratio = ratio
                         best_match = herb
                 
-                # 75% confidence threshold to prevent false positives
-                if best_match and best_ratio > 0.75:
+                if best_match and best_ratio > 0.45:
                     if best_match not in found_data or quantity > found_data[best_match]:
                         found_data[best_match] = quantity
             except: continue
@@ -155,7 +156,7 @@ def get_db():
     }
 
 # -------------------------------
-# 3. APP STYLING & STATE
+# 3. APP STYLING & INIT
 # -------------------------------
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
