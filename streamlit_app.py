@@ -7,6 +7,12 @@ import difflib
 import re
 from html import escape
 
+INGREDIENT_NAME_ALIASES = {
+    "qi dandelion": "dandelion of qi",
+}
+
+PERMANENT_EFFECT_KEYWORDS = ("perm", "lifespan", "nirvana")
+
 # -------------------------------
 # 1. DYNAMIC RAYCASTER ENGINE (Fast & Accurate)
 # -------------------------------
@@ -53,9 +59,7 @@ def get_herb_aliases(herb_name):
 def normalize_ingredient_name(name):
     """Normalizes duplicate ingredient labels into a single canonical name."""
     normalized = name.strip().lower()
-    return {
-        "qi dandelion": "dandelion of qi",
-    }.get(normalized, normalized)
+    return INGREDIENT_NAME_ALIASES.get(normalized, normalized)
 
 @st.cache_data
 def normalize_recipe_db(db):
@@ -82,7 +86,7 @@ def get_inventory_totals(inventory):
     return len(stocked), sum(stocked.values())
 
 def render_recipe_card(recipe):
-    is_perm = any(word in (recipe["spec"] or "").lower() for word in ["perm", "lifespan", "nirvana"])
+    is_perm = any(word in (recipe["spec"] or "").lower() for word in PERMANENT_EFFECT_KEYWORDS)
     tag_specs = [("pill-tag neutral", "Permanent" if is_perm else "Temporary")]
 
     if recipe["qi"] > 0:
@@ -381,7 +385,7 @@ with tab2:
             with cols[i % 2]:
                 st.number_input(h.title(), min_value=0, step=1, key=f"i_{h}")
     else:
-        st.info("No ingredients found. Try a different search term or clear the filter to see all herbs.")
+        st.info("No ingredients found. Try a different search term or clear the search box to see all herbs.")
  
 with tab1:
     p_query = st.text_input(
