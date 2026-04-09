@@ -7,6 +7,7 @@ import difflib
 import re
 from html import escape
 
+# Maps alternate ingredient labels back to the canonical inventory name.
 INGREDIENT_NAME_ALIASES = {
     "qi dandelion": "dandelion of qi",
 }
@@ -104,9 +105,13 @@ def render_recipe_card(recipe):
         f'<span class="badge">{escape(ingredient.title())}: {required}</span>'
         for ingredient, required in recipe["ing"].items()
     )
-    totals = "".join(
-        f'<div class="total-row"><span>{escape(ingredient.title())}</span><strong>{required * recipe["amt"]}</strong></div>'
+    ingredient_totals = [
+        (ingredient, required * recipe["amt"])
         for ingredient, required in recipe["ing"].items()
+    ]
+    totals = "".join(
+        f'<div class="total-row"><span>{escape(ingredient.title())}</span><strong>{total}</strong></div>'
+        for ingredient, total in ingredient_totals
     )
 
     st.markdown(
