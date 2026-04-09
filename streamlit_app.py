@@ -5,13 +5,14 @@ import easyocr
 from PIL import Image, UnidentifiedImageError
 import difflib
 import re
+import html
 from typing import Dict, Iterable, List, Optional, Tuple, TypedDict
 
 OCR_TARGET_WIDTH = 800
 MAX_Y_DIST_FACTOR = 0.3
 MAX_X_DIST_FACTOR = 0.15
 FUZZY_MATCH_THRESHOLD = 0.75
-PERM_TAG_PATTERN = re.compile(r"\b(perm|lifespan|nirvana)\b")
+PERM_TAG_PATTERN = re.compile(r"\b(perm|lifespan|nirvana)\b", re.IGNORECASE)
 
 HERB_ALIAS_SEEDS: Dict[str, List[str]] = {
     "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag", "hlcaling", "hedig", "heali4g", "heallig", "ealv"],
@@ -226,8 +227,8 @@ def get_db() -> Dict[str, List[RecipeVariant]]:
 
 def build_pill_tags(pill: CraftablePill) -> str:
     tags: List[str] = []
-    spec = (pill.get("spec") or "").lower()
-    is_perm = bool(PERM_TAG_PATTERN.search(spec))
+    spec_value = str(pill.get("spec") or "")
+    is_perm = bool(PERM_TAG_PATTERN.search(spec_value))
     tags.append(
         f'<span style="background:rgba(255,255,255,0.1); color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">'
         f'{"Permanent" if is_perm else "Temporary"}</span>'
@@ -238,24 +239,25 @@ def build_pill_tags(pill: CraftablePill) -> str:
             f'<span style="background:rgba(63,185,80,0.2); color:#3fb950; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">'
             f'+{qi_value}% Qi</span>'
         )
-    if pill.get("spec"):
-        for item in str(pill["spec"]).split("/"):
+    if spec_value:
+        for item in spec_value.split("/"):
             tags.append(
                 f'<span style="background:rgba(187,128,255,0.2); color:#d2a8ff; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">'
-                f'{item.strip()}</span>'
+                f'{html.escape(item.strip())}</span>'
             )
     return "".join(tags)
 
 
 def build_badges(ingredients: Dict[str, int]) -> str:
     return "".join(
-        f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in ingredients.items()
+        f'<span class="badge">{html.escape(ing.title())}: {req}</span>'
+        for ing, req in ingredients.items()
     )
 
 
 def build_totals(ingredients: Dict[str, int], multiplier: int) -> str:
     return "".join(
-        f'<div style="font-size: 0.8rem; margin-bottom:2px;">• {ing.title()}: <b>{req * multiplier}</b></div>'
+        f'<div style="font-size: 0.8rem; margin-bottom:2px;">• {html.escape(ing.title())}: <b>{req * multiplier}</b></div>'
         for ing, req in ingredients.items()
     )
 
@@ -264,10 +266,12 @@ def render_recipe_card(pill: CraftablePill) -> None:
     tags = build_pill_tags(pill)
     badges = build_badges(pill["ing"])
     totals = build_totals(pill["ing"], pill["amt"])
+    safe_tier = html.escape(pill["tier"])
+    safe_name = html.escape(pill["name"])
     st.markdown(
         f"""<div class="app-card">
                 <div style="display:flex; justify-content:space-between;">
-                    <div><div style="color:#8b949e; font-size:0.7rem;">{pill['tier']}</div><div class="pill-title">{pill['name']}</div><div style="margin-top:4px;">{tags}</div></div>
+                    <div><div style="color:#8b949e; font-size:0.7rem;">{safe_tier}</div><div class="pill-title">{safe_name}</div><div style="margin-top:4px;">{tags}</div></div>
                     <div style="text-align:right; margin-left:12px;"><div style="font-size:0.6rem; color:#8b949e;">BATCH</div><div style="font-size:1.8rem; color:#58a6ff; font-weight:bold;">{pill['amt']}</div></div>
                 </div>
                 <div style="margin-top:10px;">{badges}</div>
@@ -364,10 +368,13 @@ with tab2:
             st.session_state["debug_log"] = []
             st.rerun()
     with c2:
-        handcrafted = st.toggle("✨ Handcrafted (3x)", key="handcrafted")
+        handcrafted = st.toggle(
+            "✨ Handcrafted (3x)",
+            key="handcrafted",
+            value=st.session_state.get("handcrafted", False),
+        )
     
-    h_search_input = st.text_input("🔍 Manual Search/Edit...", key="herb_search")
-    h_search = h_search_input.lower().strip()
+    h_search = st.text_input("🔍 Manual Search/Edit...", key="herb_search").lower().strip()
     cols = st.columns(2)
     filtered = [h for h in all_herbs if h_search in h]
     for i, h in enumerate(filtered):
@@ -375,8 +382,7 @@ with tab2:
             st.number_input(h.title(), min_value=0, key=f"i_{h}")
 
 with tab1:
-    p_query_input = st.text_input("🔍 Live Search Recipes...", key="pill_search")
-    p_query = p_query_input.lower().strip()
+    p_query = st.text_input("🔍 Live Search Recipes...", key="pill_search").lower().strip()
     inv = {h: st.session_state[f"i_{h}"] for h in all_herbs}
     craftable: List[CraftablePill] = []
     
