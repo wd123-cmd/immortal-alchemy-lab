@@ -11,7 +11,8 @@ INGREDIENT_NAME_ALIASES = {
     "qi dandelion": "dandelion of qi",
 }
 
-PERMANENT_EFFECT_KEYWORDS = ("perm", "lifespan", "nirvana")
+PERMANENT_EFFECT_KEYWORDS = frozenset({"perm", "lifespan", "nirvana"})
+HANDCRAFTED_MULTIPLIER = 3
 
 # -------------------------------
 # 1. DYNAMIC RAYCASTER ENGINE (Fast & Accurate)
@@ -371,7 +372,11 @@ with tab2:
             st.session_state['debug_log'] = []
             st.rerun()
     with c2:
-        st.toggle("✨ Handcrafted (3x)", key="handcrafted", help="Triples Qi bonuses for all recipes.")
+        st.toggle(
+            f"✨ Handcrafted ({HANDCRAFTED_MULTIPLIER}x)",
+            key="handcrafted",
+            help=f"Multiplies Qi bonuses for all recipes by {HANDCRAFTED_MULTIPLIER}.",
+        )
     
     h_search = st.text_input(
         "🔍 Manual Search/Edit...",
@@ -406,7 +411,11 @@ with tab1:
             possible = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
             amt = min(possible) if possible else 0
             if amt > 0:
-                qi_val = v["qi"] * 3 if st.session_state["handcrafted"] else v["qi"]
+                qi_val = (
+                    v["qi"] * HANDCRAFTED_MULTIPLIER
+                    if st.session_state["handcrafted"]
+                    else v["qi"]
+                )
                 if not p_query or p_query in name.lower() or p_query in v.get('spec', '').lower() or p_query in v['tier'].lower():
                     craftable.append({"name": name, "tier": v["tier"], "amt": amt, "qi": qi_val, "spec": v.get("spec"), "ing": v["ingredients"]})
  
