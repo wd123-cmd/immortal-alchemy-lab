@@ -317,7 +317,9 @@ st.markdown("""
     padding: 12px 0 6px 0;
     margin-bottom: 10px;
   }
-  .app-header h1 { color: #58a6ff; font-size: clamp(1.4rem, 4vw, 2rem); margin: 0; }
+  /* clamp(min, preferred, max) — the preferred value is relative to font size
+     so user zoom is respected while still scaling with viewport */
+  .app-header h1 { color: #58a6ff; font-size: clamp(1.4rem, 2.5vw + 0.5rem, 2rem); margin: 0; }
   .app-header p  { color: #8b949e; font-size: 0.85rem; margin: 4px 0 0 0; }
 
   /* ── Mobile tweaks ────────────────────────────────── */
@@ -325,8 +327,8 @@ st.markdown("""
     .block-container { padding: 0.75rem 0.5rem !important; }
     .app-card { padding: 12px !important; }
     .pill-title { font-size: 1rem !important; }
-    /* Touch-friendly number inputs */
-    input[type="number"] { min-height: 44px !important; }
+    /* Touch-friendly inputs (44 px minimum tap target) */
+    input, select, textarea { min-height: 44px !important; }
     /* Stack two-column grids on very narrow screens */
     [data-testid="column"] { min-width: 100% !important; }
   }
@@ -458,9 +460,12 @@ with tab1:
                 with col:
                     for ing, need in chunk:
                         have = inv.get(ing, 0)
-                        color = "#3fb950" if have >= need else "#f85149"
+                        ok = have >= need
+                        color  = "#3fb950" if ok else "#f85149"
+                        icon   = "✓" if ok else "✗"
                         st.markdown(
                             f'<div style="font-size:0.82rem; margin-bottom:3px;">'
+                            f'<span style="color:{color};font-weight:bold;">{icon}</span> '
                             f'{ing.title()}: <b style="color:{color}">{need}</b>'
                             f' <span style="color:#8b949e">(have {have})</span></div>',
                             unsafe_allow_html=True,
