@@ -57,6 +57,7 @@ def normalize_ingredient_name(name):
         "qi dandelion": "dandelion of qi",
     }.get(normalized, normalized)
 
+@st.cache_data
 def normalize_recipe_db(db):
     """Keeps the recipe database consistent for search, OCR, and inventory state."""
     normalized_db = {}
