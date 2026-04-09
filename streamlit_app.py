@@ -5,7 +5,7 @@ import easyocr
 from PIL import Image, UnidentifiedImageError
 import difflib
 import re
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple, TypedDict
 
 OCR_TARGET_WIDTH = 800
 MAX_Y_DIST_FACTOR = 0.3
@@ -35,6 +35,22 @@ HERB_ALIAS_SEEDS: Dict[str, List[str]] = {
     "wild bitter grass": ["wildbitter", "bittergrass"],
 }
 
+
+class RecipeVariant(TypedDict, total=False):
+    tier: str
+    ingredients: Dict[str, int]
+    qi: int
+    spec: str
+
+
+class CraftablePill(TypedDict):
+    name: str
+    tier: str
+    amt: int
+    qi: int
+    spec: Optional[str]
+    ing: Dict[str, int]
+
 # -------------------------------
 # 1. DYNAMIC RAYCASTER ENGINE (Fast & Accurate)
 # -------------------------------
@@ -44,9 +60,9 @@ def load_ocr() -> easyocr.Reader:
 
 
 @st.cache_data(show_spinner=False)
-def build_alias_map(herb_list: Tuple[str, ...]) -> Dict[str, Tuple[str, ...]]:
+def build_alias_map(herb_list: Iterable[str]) -> Dict[str, Tuple[str, ...]]:
     alias_map: Dict[str, Tuple[str, ...]] = {}
-    for herb in herb_list:
+    for herb in tuple(herb_list):
         base_aliases = set(HERB_ALIAS_SEEDS.get(herb.lower(), []))
         base_aliases.update({word for word in herb.lower().split() if len(word) > 3})
         alias_map[herb] = tuple(sorted(base_aliases))
@@ -97,7 +113,9 @@ def match_herb(word: str, alias_map: Dict[str, Tuple[str, ...]]) -> Optional[str
                 return herb
     return None
 
-def decompile_screenshot(image_file, alias_map: Dict[str, Tuple[str, ...]]):
+def decompile_screenshot(
+    image_file, alias_map: Dict[str, Tuple[str, ...]]
+) -> Tuple[Dict[str, int], List[str], Optional[str]]:
     reader = load_ocr()
     try:
         image = Image.open(image_file)
@@ -179,7 +197,7 @@ def decompile_screenshot(image_file, alias_map: Dict[str, Tuple[str, ...]]):
 # 2. FULL RECIPE DATABASE
 # -------------------------------
 @st.cache_data(show_spinner=False)
-def get_db() -> Dict[str, List[Dict[str, object]]]:
+def get_db() -> Dict[str, List[RecipeVariant]]:
     return {
         "Nine Yang Pill": [{"tier": "Standard", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "ironbone grass": 2, "crimson flame mushroom": 1}, "qi": 92}, {"tier": "Heavenly", "ingredients": {"nine suns flame grass": 2, "purple lightning orchid": 1, "black iron root": 2, "crimson flame mushroom": 1}, "qi": 120}],
         "Jade Tide Pill": [{"tier": "Standard", "ingredients": {"blue wave coral herb": 2, "moonlight jade leaf": 2, "red ginseng": 1, "bitter jade grass": 1}, "qi": 150}, {"tier": "Heavenly", "ingredients": {"blue wave coral herb": 2, "black iron root": 1, "crimson flame mushroom": 1, "bitter jade grass": 2}, "qi": 162}],
@@ -202,7 +220,7 @@ def get_db() -> Dict[str, List[Dict[str, object]]]:
     }
 
 
-def build_pill_tags(pill: Dict[str, object]) -> str:
+def build_pill_tags(pill: CraftablePill) -> str:
     tags: List[str] = []
     spec = (pill.get("spec") or "").lower()
     is_perm = any(word in spec for word in ["perm", "lifespan", "nirvana"])
@@ -238,7 +256,7 @@ def build_totals(ingredients: Dict[str, int], multiplier: int) -> str:
     )
 
 
-def render_recipe_card(pill: Dict[str, object]) -> None:
+def render_recipe_card(pill: CraftablePill) -> None:
     tags = build_pill_tags(pill)
     badges = build_badges(pill["ing"])
     totals = build_totals(pill["ing"], pill["amt"])
@@ -344,7 +362,8 @@ with tab2:
     with c2:
         st.toggle("✨ Handcrafted (3x)", key="handcrafted")
     
-    h_search = st.text_input("🔍 Manual Search/Edit...", key="herb_search").lower().strip()
+    h_search_input = st.text_input("🔍 Manual Search/Edit...", key="herb_search")
+    h_search = h_search_input.lower().strip()
     cols = st.columns(2)
     filtered = [h for h in all_herbs if h_search in h]
     for i, h in enumerate(filtered):
@@ -352,10 +371,11 @@ with tab2:
             st.number_input(h.title(), min_value=0, key=f"i_{h}")
 
 with tab1:
-    p_query = st.text_input("🔍 Live Search Recipes...", key="pill_search").lower().strip()
+    p_query_input = st.text_input("🔍 Live Search Recipes...", key="pill_search")
+    p_query = p_query_input.lower().strip()
     handcrafted = st.session_state["handcrafted"]
     inv = {h: st.session_state[f"i_{h}"] for h in all_herbs}
-    craftable = []
+    craftable: List[CraftablePill] = []
     
     for name, variants in db.items():
         for v in variants:
