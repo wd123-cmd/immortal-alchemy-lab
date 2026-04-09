@@ -226,7 +226,7 @@ def get_db() -> Dict[str, List[RecipeVariant]]:
 
 def build_pill_tags(pill: CraftablePill) -> str:
     tags: List[str] = []
-    spec = pill.get("spec", "").lower()
+    spec = (pill.get("spec") or "").lower()
     is_perm = bool(PERM_TAG_PATTERN.search(spec))
     tags.append(
         f'<span style="background:rgba(255,255,255,0.1); color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">'
@@ -364,9 +364,9 @@ with tab2:
             st.session_state["debug_log"] = []
             st.rerun()
     with c2:
-        st.toggle("✨ Handcrafted (3x)", key="handcrafted")
+        handcrafted = st.toggle("✨ Handcrafted (3x)", key="handcrafted")
     
-    h_search_input = st.text_input("🔍 Manual Search/Edit...", key="herb_search") or ""
+    h_search_input = st.text_input("🔍 Manual Search/Edit...", key="herb_search")
     h_search = h_search_input.lower().strip()
     cols = st.columns(2)
     filtered = [h for h in all_herbs if h_search in h]
@@ -375,9 +375,8 @@ with tab2:
             st.number_input(h.title(), min_value=0, key=f"i_{h}")
 
 with tab1:
-    p_query_input = st.text_input("🔍 Live Search Recipes...", key="pill_search") or ""
+    p_query_input = st.text_input("🔍 Live Search Recipes...", key="pill_search")
     p_query = p_query_input.lower().strip()
-    handcrafted = st.session_state["handcrafted"]
     inv = {h: st.session_state[f"i_{h}"] for h in all_herbs}
     craftable: List[CraftablePill] = []
     
