@@ -11,6 +11,7 @@ OCR_TARGET_WIDTH = 800
 MAX_Y_DIST_FACTOR = 0.3
 MAX_X_DIST_FACTOR = 0.15
 FUZZY_MATCH_THRESHOLD = 0.75
+PERM_TAG_PATTERN = re.compile(r"\b(perm|lifespan|nirvana)\b")
 
 HERB_ALIAS_SEEDS: Dict[str, List[str]] = {
     "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag", "hlcaling", "hedig", "heali4g", "heallig", "ealv"],
@@ -226,12 +227,12 @@ def get_db() -> Dict[str, List[RecipeVariant]]:
 def build_pill_tags(pill: CraftablePill) -> str:
     tags: List[str] = []
     spec = pill.get("spec", "").lower()
-    is_perm = any(word in spec for word in ["perm", "lifespan", "nirvana"])
+    is_perm = bool(PERM_TAG_PATTERN.search(spec))
     tags.append(
         f'<span style="background:rgba(255,255,255,0.1); color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">'
         f'{"Permanent" if is_perm else "Temporary"}</span>'
     )
-    qi_value = int(pill.get("qi", 0))
+    qi_value = pill.get("qi", 0)
     if qi_value > 0:
         tags.append(
             f'<span style="background:rgba(63,185,80,0.2); color:#3fb950; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">'
@@ -265,9 +266,9 @@ def render_recipe_card(pill: CraftablePill) -> None:
     totals = build_totals(pill["ing"], pill["amt"])
     st.markdown(
         f"""<div class="app-card">
-                <div style="display:flex; justify-content:space-between; gap:12px;">
+                <div style="display:flex; justify-content:space-between;">
                     <div><div style="color:#8b949e; font-size:0.7rem;">{pill['tier']}</div><div class="pill-title">{pill['name']}</div><div style="margin-top:4px;">{tags}</div></div>
-                    <div style="text-align:right;"><div style="font-size:0.6rem; color:#8b949e;">BATCH</div><div style="font-size:1.8rem; color:#58a6ff; font-weight:bold;">{pill['amt']}</div></div>
+                    <div style="text-align:right; margin-left:12px;"><div style="font-size:0.6rem; color:#8b949e;">BATCH</div><div style="font-size:1.8rem; color:#58a6ff; font-weight:bold;">{pill['amt']}</div></div>
                 </div>
                 <div style="margin-top:10px;">{badges}</div>
                 <div class="total-box"><b>BATCH MATERIALS:</b><br>{totals}</div>
@@ -300,7 +301,7 @@ st.markdown(
     .badge { display: inline-block; background: rgba(88, 166, 255, 0.1); color: #58a6ff; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; margin-top: 5px; border: 1px solid rgba(88, 166, 255, 0.2); }
     .total-box { margin-top: 12px; padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 10px; border: 1px dashed rgba(88, 166, 255, 0.2); }
 
-    @media (max-width: 900px) {
+    @media (max-width: 768px) {
         .pill-title { font-size: 1.1rem; }
         .badge { font-size: 0.7rem; padding: 4px 8px; }
         .stTabs [data-baseweb="tab"] { font-size: 0.85rem; padding: 6px 10px; }
@@ -314,7 +315,7 @@ st.markdown(
 
 db = get_db()
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
-alias_map = build_alias_map(tuple(all_herbs))
+alias_map = build_alias_map(all_herbs)
 init_session_state(all_herbs)
 
 # -------------------------------
