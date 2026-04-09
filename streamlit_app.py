@@ -225,13 +225,13 @@ def get_db() -> Dict[str, List[RecipeVariant]]:
 
 def build_pill_tags(pill: CraftablePill) -> str:
     tags: List[str] = []
-    spec = (pill.get("spec") or "").lower()
+    spec = pill.get("spec", "").lower()
     is_perm = any(word in spec for word in ["perm", "lifespan", "nirvana"])
     tags.append(
         f'<span style="background:rgba(255,255,255,0.1); color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">'
         f'{"Permanent" if is_perm else "Temporary"}</span>'
     )
-    qi_value = int(pill.get("qi") or 0)
+    qi_value = int(pill.get("qi", 0))
     if qi_value > 0:
         tags.append(
             f'<span style="background:rgba(63,185,80,0.2); color:#3fb950; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">'
@@ -365,7 +365,8 @@ with tab2:
     with c2:
         st.toggle("✨ Handcrafted (3x)", key="handcrafted")
     
-    h_search = st.text_input("🔍 Manual Search/Edit...", key="herb_search").lower().strip()
+    h_search_input = st.text_input("🔍 Manual Search/Edit...", key="herb_search") or ""
+    h_search = h_search_input.lower().strip()
     cols = st.columns(2)
     filtered = [h for h in all_herbs if h_search in h]
     for i, h in enumerate(filtered):
@@ -373,7 +374,8 @@ with tab2:
             st.number_input(h.title(), min_value=0, key=f"i_{h}")
 
 with tab1:
-    p_query = st.text_input("🔍 Live Search Recipes...", key="pill_search").lower().strip()
+    p_query_input = st.text_input("🔍 Live Search Recipes...", key="pill_search") or ""
+    p_query = p_query_input.lower().strip()
     handcrafted = st.session_state["handcrafted"]
     inv = {h: st.session_state[f"i_{h}"] for h in all_herbs}
     craftable: List[CraftablePill] = []
