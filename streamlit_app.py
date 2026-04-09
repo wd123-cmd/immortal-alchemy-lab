@@ -303,7 +303,7 @@ st.markdown("""<style>
         .recipe-header { flex-direction: column; }
         .recipe-batch { text-align: left; }
         .recipe-batch-count { font-size: 1.5rem; }
-        .badge, .pill-tag { font-size: 0.7rem; }
+        .badge, .pill-tag { font-size: 0.75rem; }
     }
 </style>""", unsafe_allow_html=True)
 
@@ -366,7 +366,7 @@ with tab2:
             st.session_state['debug_log'] = []
             st.rerun()
     with c2:
-        st.toggle("✨ Handcrafted (3x)", key="handcrafted")
+        st.toggle("✨ Handcrafted (3x)", key="handcrafted", help="Triples Qi bonuses for all recipes.")
     
     h_search = st.text_input(
         "🔍 Manual Search/Edit...",
@@ -380,7 +380,7 @@ with tab2:
             with cols[i % 2]:
                 st.number_input(h.title(), min_value=0, step=1, key=f"i_{h}")
     else:
-        st.info("No ingredients matched that search.")
+        st.info("No ingredients found. Try a different search term or clear the filter to see all herbs.")
  
 with tab1:
     p_query = st.text_input(
