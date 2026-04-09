@@ -36,10 +36,13 @@ HERB_ALIAS_SEEDS: Dict[str, List[str]] = {
 }
 
 
-class RecipeVariant(TypedDict, total=False):
+class RecipeVariantBase(TypedDict):
     tier: str
     ingredients: Dict[str, int]
     qi: int
+
+
+class RecipeVariant(RecipeVariantBase, total=False):
     spec: str
 
 
@@ -62,7 +65,7 @@ def load_ocr() -> easyocr.Reader:
 @st.cache_data(show_spinner=False)
 def build_alias_map(herb_list: Iterable[str]) -> Dict[str, Tuple[str, ...]]:
     alias_map: Dict[str, Tuple[str, ...]] = {}
-    for herb in tuple(herb_list):
+    for herb in herb_list:
         base_aliases = set(HERB_ALIAS_SEEDS.get(herb.lower(), []))
         base_aliases.update({word for word in herb.lower().split() if len(word) > 3})
         alias_map[herb] = tuple(sorted(base_aliases))
@@ -362,8 +365,7 @@ with tab2:
     with c2:
         st.toggle("✨ Handcrafted (3x)", key="handcrafted")
     
-    h_search_input = st.text_input("🔍 Manual Search/Edit...", key="herb_search")
-    h_search = h_search_input.lower().strip()
+    h_search = st.text_input("🔍 Manual Search/Edit...", key="herb_search").lower().strip()
     cols = st.columns(2)
     filtered = [h for h in all_herbs if h_search in h]
     for i, h in enumerate(filtered):
@@ -371,8 +373,7 @@ with tab2:
             st.number_input(h.title(), min_value=0, key=f"i_{h}")
 
 with tab1:
-    p_query_input = st.text_input("🔍 Live Search Recipes...", key="pill_search")
-    p_query = p_query_input.lower().strip()
+    p_query = st.text_input("🔍 Live Search Recipes...", key="pill_search").lower().strip()
     handcrafted = st.session_state["handcrafted"]
     inv = {h: st.session_state[f"i_{h}"] for h in all_herbs}
     craftable: List[CraftablePill] = []
