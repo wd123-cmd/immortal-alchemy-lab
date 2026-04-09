@@ -5,6 +5,7 @@ import easyocr
 from PIL import Image
 import difflib
 import re
+from html import escape
 
 # -------------------------------
 # 1. DYNAMIC RAYCASTER ENGINE (Fast & Accurate)
@@ -16,6 +17,7 @@ def load_ocr():
 def get_herb_aliases(herb_name):
     """Maps actual herb names to known OCR hallucinations."""
     aliases = []
+    herb_name = normalize_ingredient_name(herb_name)
     
     mapping = {
         "healing sunflower": ["healing", "sunflower", "sundlng", "hcalig", "healig", "sunllower", "sunllowe", "hcaling", "suadlag", "hlcaling", "hedig", "heali4g", "heallig", "ealv"],
@@ -47,6 +49,81 @@ def get_herb_aliases(herb_name):
         if len(w) > 3: aliases.append(w)
         
     return list(set(aliases))
+
+def normalize_ingredient_name(name):
+    """Normalizes duplicate ingredient labels into a single canonical name."""
+    normalized = name.strip().lower()
+    return {
+        "qi dandelion": "dandelion of qi",
+    }.get(normalized, normalized)
+
+def normalize_recipe_db(db):
+    """Keeps the recipe database consistent for search, OCR, and inventory state."""
+    normalized_db = {}
+
+    for recipe_name, variants in db.items():
+        normalized_variants = []
+
+        for variant in variants:
+            ingredients = {}
+            for ingredient, qty in variant["ingredients"].items():
+                canonical = normalize_ingredient_name(ingredient)
+                ingredients[canonical] = ingredients.get(canonical, 0) + qty
+
+            normalized_variants.append({**variant, "ingredients": ingredients})
+
+        normalized_db[recipe_name] = normalized_variants
+
+    return normalized_db
+
+def get_inventory_totals(inventory):
+    stocked = {herb: qty for herb, qty in inventory.items() if qty > 0}
+    return len(stocked), sum(stocked.values())
+
+def render_recipe_card(recipe):
+    is_perm = any(word in (recipe["spec"] or "").lower() for word in ["perm", "lifespan", "nirvana"])
+    tag_specs = [("pill-tag neutral", "Permanent" if is_perm else "Temporary")]
+
+    if recipe["qi"] > 0:
+        tag_specs.append(("pill-tag positive", f'+{recipe["qi"]}% Qi'))
+
+    if recipe["spec"]:
+        tag_specs.extend(("pill-tag accent", section.strip()) for section in recipe["spec"].split("/"))
+
+    tags = "".join(
+        f'<span class="{css_class}">{escape(label)}</span>'
+        for css_class, label in tag_specs
+    )
+    badges = "".join(
+        f'<span class="badge">{escape(ingredient.title())}: {required}</span>'
+        for ingredient, required in recipe["ing"].items()
+    )
+    totals = "".join(
+        f'<div class="total-row"><span>{escape(ingredient.title())}</span><strong>{required * recipe["amt"]}</strong></div>'
+        for ingredient, required in recipe["ing"].items()
+    )
+
+    st.markdown(
+        f"""<article class="app-card">
+            <div class="recipe-header">
+                <div>
+                    <div class="recipe-tier">{escape(recipe["tier"])}</div>
+                    <div class="pill-title">{escape(recipe["name"])}</div>
+                    <div class="pill-tag-row">{tags}</div>
+                </div>
+                <div class="recipe-batch">
+                    <div class="recipe-batch-label">BATCH</div>
+                    <div class="recipe-batch-count">{recipe["amt"]}</div>
+                </div>
+            </div>
+            <div class="badge-row">{badges}</div>
+            <div class="total-box">
+                <div class="total-heading">Batch materials</div>
+                {totals}
+            </div>
+        </article>""",
+        unsafe_allow_html=True,
+    )
 
 def decompile_screenshot(image_file, herb_list):
     reader = load_ocr()
@@ -173,19 +250,64 @@ def get_db():
 st.set_page_config(layout="wide", page_title="Immortal Alchemy Lab", page_icon="🧿")
 
 st.markdown("""<style>
+    :root {
+        --accent: #58a6ff;
+        --accent-soft: rgba(88, 166, 255, 0.15);
+        --border-soft: rgba(255, 255, 255, 0.12);
+        --text-soft: #8b949e;
+    }
     .stApp { background: radial-gradient(circle at top right, #1a1f35, #0a0c10); }
+    .block-container { padding-top: 1.4rem; padding-bottom: 2rem; }
     header {visibility: hidden;} footer {visibility: hidden;}
-    .stTabs [data-baseweb="tab"] { background-color: rgba(255, 255, 255, 0.05); color: #8b949e; border-radius: 8px 8px 0 0; }
-    .stTabs [aria-selected="true"] { background-color: rgba(88, 166, 255, 0.15) !important; color: #58a6ff !important; border-bottom: 2px solid #58a6ff !important; }
+    .stTabs [data-baseweb="tab-list"] { gap: 0.75rem; flex-wrap: wrap; }
+    .stTabs [data-baseweb="tab"] {
+        background-color: rgba(255, 255, 255, 0.05);
+        color: var(--text-soft);
+        border-radius: 10px 10px 0 0;
+        padding: 0.45rem 0.9rem;
+        min-height: 3rem;
+    }
+    .stTabs [data-baseweb="tab"] p { white-space: normal; }
+    .stTabs [aria-selected="true"] { background-color: var(--accent-soft) !important; color: var(--accent) !important; border-bottom: 2px solid var(--accent) !important; }
     label { color: #f0f6fc !important; font-weight: 600 !important; }
     div[data-baseweb="input"] { background-color: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(88, 166, 255, 0.3) !important; border-radius: 8px !important; }
-    .app-card { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(15px); border-radius: 15px; padding: 15px; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 15px; color: white; }
-    .pill-title { color: #58a6ff; font-size: 1.3rem; font-weight: bold; margin: 0; }
-    .badge { display: inline-block; background: rgba(88, 166, 255, 0.1); color: #58a6ff; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; margin-top: 5px; border: 1px solid rgba(88, 166, 255, 0.2); }
-    .total-box { margin-top: 12px; padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 10px; border: 1px dashed rgba(88, 166, 255, 0.2); }
+    div[data-testid="stFileUploader"] section {
+        border: 1px dashed rgba(88, 166, 255, 0.35);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.04);
+    }
+    .section-copy { color: var(--text-soft); margin-bottom: 0.75rem; }
+    .section-summary { color: #c9d1d9; font-size: 0.9rem; margin-bottom: 0.4rem; }
+    .app-card { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(15px); border-radius: 15px; padding: 1rem; border: 1px solid var(--border-soft); margin-bottom: 1rem; color: white; }
+    .recipe-header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+    .pill-title { color: var(--accent); font-size: 1.25rem; font-weight: 700; margin: 0; }
+    .recipe-tier, .recipe-batch-label { color: var(--text-soft); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .recipe-batch { text-align: right; }
+    .recipe-batch-count { font-size: 1.8rem; color: var(--accent); font-weight: 700; line-height: 1; }
+    .pill-tag-row, .badge-row { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.75rem; }
+    .pill-tag, .badge { display: inline-flex; align-items: center; border-radius: 999px; font-size: 0.75rem; border: 1px solid transparent; }
+    .pill-tag { padding: 0.25rem 0.6rem; }
+    .pill-tag.neutral { background: rgba(255,255,255,0.08); color: white; border-color: rgba(255,255,255,0.12); }
+    .pill-tag.positive { background: rgba(63,185,80,0.18); color: #3fb950; border-color: rgba(63,185,80,0.3); }
+    .pill-tag.accent { background: rgba(187,128,255,0.18); color: #d2a8ff; border-color: rgba(187,128,255,0.28); }
+    .badge { background: rgba(88, 166, 255, 0.1); color: var(--accent); padding: 0.3rem 0.7rem; border-color: rgba(88, 166, 255, 0.2); }
+    .total-box { margin-top: 0.9rem; padding: 0.9rem; background: rgba(0, 0, 0, 0.3); border-radius: 10px; border: 1px dashed rgba(88, 166, 255, 0.2); }
+    .total-heading { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-soft); margin-bottom: 0.45rem; }
+    .total-row { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.9rem; margin-bottom: 0.2rem; }
+
+    @media (max-width: 640px) {
+        .block-container { padding-left: 1rem; padding-right: 1rem; }
+        .stTabs [data-baseweb="tab"] { flex: 1 1 8rem; padding: 0.45rem 0.65rem; }
+        .stTabs [data-baseweb="tab"] p { font-size: 0.9rem; }
+        .app-card { border-radius: 12px; padding: 0.9rem; }
+        .recipe-header { flex-direction: column; }
+        .recipe-batch { text-align: left; }
+        .recipe-batch-count { font-size: 1.5rem; }
+        .badge, .pill-tag { font-size: 0.7rem; }
+    }
 </style>""", unsafe_allow_html=True)
 
-db = get_db()
+db = normalize_recipe_db(get_db())
 all_herbs = sorted(list(set(h for v_list in db.values() for v in v_list for h in v["ingredients"])))
 
 for h in all_herbs:
@@ -195,6 +317,9 @@ for h in all_herbs:
 if 'debug_log' not in st.session_state:
     st.session_state['debug_log'] = []
 
+if "handcrafted" not in st.session_state:
+    st.session_state["handcrafted"] = False
+
 # -------------------------------
 # 4. MAIN INTERFACE TABS
 # -------------------------------
@@ -202,10 +327,17 @@ tab1, tab2 = st.tabs(["🥣 Lab Dashboard", "🎒 Ingredients Chest"])
 
 with tab2:
     st.markdown("### 📸 Visual Decompiler")
+    inv = {h: st.session_state[f"i_{h}"] for h in all_herbs}
+    stocked_herbs, stocked_units = get_inventory_totals(inv)
+    st.markdown(
+        f'<div class="section-copy">Scan an inventory screenshot or update counts manually. '
+        f'Currently tracking <strong>{stocked_herbs}</strong> herbs across <strong>{stocked_units}</strong> total units.</div>',
+        unsafe_allow_html=True,
+    )
     ss_file = st.file_uploader("Upload Inventory Screenshot", type=['png', 'jpg', 'jpeg'])
     
     if ss_file:
-        if st.button("✨ Decompile Image"):
+        if st.button("✨ Decompile Image", use_container_width=True):
             with st.spinner("Raycasting Layout & Decoding Herbs..."):
                 found, raw_text = decompile_screenshot(ss_file, all_herbs)
                 
@@ -228,24 +360,40 @@ with tab2:
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🧹 Clear All Stock"):
+        if st.button("🧹 Clear All Stock", use_container_width=True):
             for h in all_herbs: 
                 st.session_state[f"i_{h}"] = 0
             st.session_state['debug_log'] = []
             st.rerun()
-    with c2: 
-        handcrafted = st.toggle("✨ Handcrafted (3x)", value=False)
+    with c2:
+        st.toggle("✨ Handcrafted (3x)", key="handcrafted")
     
-    h_search = st.text_input("🔍 Manual Search/Edit...", "").lower()
+    h_search = st.text_input(
+        "🔍 Manual Search/Edit...",
+        "",
+        placeholder="Type part of an herb name",
+    ).strip().lower()
     cols = st.columns(2)
     filtered = [h for h in all_herbs if h_search in h]
-    for i, h in enumerate(filtered):
-        with cols[i % 2]: 
-            st.number_input(h.title(), min_value=0, key=f"i_{h}")
-
+    if filtered:
+        for i, h in enumerate(filtered):
+            with cols[i % 2]:
+                st.number_input(h.title(), min_value=0, step=1, key=f"i_{h}")
+    else:
+        st.info("No ingredients matched that search.")
+ 
 with tab1:
-    p_query = st.text_input("🔍 Live Search Recipes...", "").lower()
+    p_query = st.text_input(
+        "🔍 Live Search Recipes...",
+        "",
+        placeholder="Filter by recipe, tier, or effect",
+    ).strip().lower()
     inv = {h: st.session_state[f"i_{h}"] for h in all_herbs}
+    stocked_herbs, stocked_units = get_inventory_totals(inv)
+    st.markdown(
+        f'<div class="section-summary">{stocked_herbs} stocked herbs • {stocked_units} total units</div>',
+        unsafe_allow_html=True,
+    )
     craftable = []
     
     for name, variants in db.items():
@@ -253,28 +401,13 @@ with tab1:
             possible = [inv.get(ing, 0) // req for ing, req in v["ingredients"].items()]
             amt = min(possible) if possible else 0
             if amt > 0:
-                qi_val = v["qi"] * 3 if handcrafted else v["qi"]
+                qi_val = v["qi"] * 3 if st.session_state["handcrafted"] else v["qi"]
                 if not p_query or p_query in name.lower() or p_query in v.get('spec', '').lower() or p_query in v['tier'].lower():
                     craftable.append({"name": name, "tier": v["tier"], "amt": amt, "qi": qi_val, "spec": v.get("spec"), "ing": v["ingredients"]})
-
+ 
     if craftable:
+        st.caption(f"{len(craftable)} craftable recipe variants available")
         for p in sorted(craftable, key=lambda x: x['qi'], reverse=True):
-            is_perm = any(w in (p['spec'] or "").lower() for w in ["perm", "lifespan", "nirvana"])
-            tags = f'<span style="background:rgba(255,255,255,0.1); color:white; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">{"Permanent" if is_perm else "Temporary"}</span>'
-            if p['qi'] > 0: tags += f'<span style="background:rgba(63,185,80,0.2); color:#3fb950; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">+{p["qi"]}% Qi</span>'
-            if p['spec']:
-                for s in p['spec'].split('/'): tags += f'<span style="background:rgba(187,128,255,0.2); color:#d2a8ff; padding:2px 6px; border-radius:4px; font-size:0.7rem; margin-right:4px;">{s.strip()}</span>'
-
-            badges = "".join([f'<span class="badge">{ing.title()}: {req}</span>' for ing, req in p["ing"].items()])
-            totals = "".join([f'<div style="font-size: 0.8rem; margin-bottom:2px;">• {ing.title()}: <b>{req*p["amt"]}</b></div>' for ing, req in p["ing"].items()])
-            
-            st.markdown(f"""<div class="app-card">
-                <div style="display:flex; justify-content:space-between;">
-                    <div><div style="color:#8b949e; font-size:0.7rem;">{p['tier']}</div><div class="pill-title">{p['name']}</div><div style="margin-top:4px;">{tags}</div></div>
-                    <div style="text-align:right;"><div style="font-size:0.6rem; color:#8b949e;">BATCH</div><div style="font-size:1.8rem; color:#58a6ff; font-weight:bold;">{p['amt']}</div></div>
-                </div>
-                <div style="margin-top:10px;">{badges}</div>
-                <div class="total-box"><b>BATCH MATERIALS:</b><br>{totals}</div>
-            </div>""", unsafe_allow_html=True)
+            render_recipe_card(p)
     else: 
         st.info("No craftable items. Scan a screenshot or add ingredients manually.")
